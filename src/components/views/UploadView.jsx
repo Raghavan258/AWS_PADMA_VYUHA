@@ -1,0 +1,723 @@
+import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { UploadCloud, FileText, CheckCircle2, AlertCircle, PlaySquare, Clock, BookOpen, ChevronRight, PlayCircle, Zap, Layers } from 'lucide-react';
+import MagneticButton from '../common/MagneticButton';
+import ProcessingModal from './ProcessingModal';
+
+export default function UploadView() {
+    const navigate = useNavigate();
+    const [dragState, setDragState] = useState('idle'); // idle, dragover, processing
+    const [showDuplicateToast, setShowDuplicateToast] = useState(false);
+    const [terminalLogs, setTerminalLogs] = useState([]);
+    const [isProcessingModalOpen, setIsProcessingModalOpen] = useState(false);
+    const [primaryGoal, setPrimaryGoal] = useState('your');
+
+    // Route Protection & State Reading
+    useEffect(() => {
+        if (localStorage.getItem('isLoggedIn') !== 'true') {
+            navigate('/login');
+            return;
+        }
+
+        const storedGoals = localStorage.getItem('selectedGoals');
+        if (storedGoals) {
+            try {
+                const parsed = JSON.parse(storedGoals);
+                if (parsed.length > 0) {
+                    setPrimaryGoal(parsed[0]);
+                }
+            } catch (e) { }
+        }
+    }, [navigate]);
+
+    // Mock Library Data (Whole Textbooks)
+    const libraryItems = [
+        { id: 1, title: 'Biology Grade 12', progress: 80, time: '5m 20s left', color: '#f472b6', icon: <FileText size={24} color="#f472b6" /> },
+        { id: 2, title: 'Advanced Engineering Mathematics', progress: 100, time: 'Completed', color: '#4ade80', icon: <CheckCircle2 size={24} color="#4ade80" /> },
+        { id: 3, title: 'Principles of Economics', progress: 35, time: '12m 45s left', color: '#22d3ee', icon: <BookOpen size={24} color="#22d3ee" /> },
+        { id: 4, title: 'World History: Deep Dive', progress: 15, time: '40m left', color: '#fbbf24', icon: <Clock size={24} color="#fbbf24" /> }
+    ];
+
+    // For manual local testing: set to false to see the empty state, true to see data.
+    const hasConversions = libraryItems.length > 0;
+
+    // Scroll reveal logic
+    useEffect(() => {
+        const elements = document.querySelectorAll('.stagger-reveal');
+        elements.forEach((el, index) => {
+            setTimeout(() => {
+                el.classList.add('revealed');
+            }, 100 * (index + 1));
+        });
+    }, []);
+
+    const handleDragOver = (e) => {
+        e.preventDefault();
+        if (dragState !== 'processing') setDragState('dragover');
+    };
+
+    const handleDragLeave = (e) => {
+        e.preventDefault();
+        if (dragState !== 'processing') setDragState('idle');
+    };
+
+    const handleDrop = (e) => {
+        e.preventDefault();
+        const files = e.dataTransfer?.files || e.target?.files;
+        if (!files || files.length === 0) return;
+
+        const file = files[0];
+        setDragState('processing');
+        setTerminalLogs([]); // Reset logs
+
+        const simulateTerminalSequence = async () => {
+            const logs = [
+                "> Scanning document structure...",
+                "> Detected 12 chapters, 847 pages",
+                "> Initializing AI core..."
+            ];
+
+            for (let i = 0; i < logs.length; i++) {
+                await new Promise(r => setTimeout(r, 800));
+                setTerminalLogs(prev => [...prev, logs[i]]);
+            }
+
+            // After sequence finishes, navigate or show duplicate
+            await new Promise(r => setTimeout(r, 1000));
+
+            // Simulate Duplicate Detection
+            if (file.name.toLowerCase().includes('duplicate') || Math.random() < 0.3) {
+                setDragState('idle');
+                setTerminalLogs([]);
+                setShowDuplicateToast(true);
+                setTimeout(() => setShowDuplicateToast(false), 5000);
+            } else {
+                setDragState('idle');
+                setTerminalLogs([]);
+                setIsProcessingModalOpen(true);
+            }
+        };
+
+        simulateTerminalSequence();
+    };
+
+    return (
+        <div className="upload-page-container pt-24 pb-40">
+
+            {/* Duplicate Detection Toast */}
+            <div className={`duplicate-toast ${showDuplicateToast ? 'toast-visible' : ''}`}>
+                <AlertCircle size={24} color="#f59e0b" />
+                <div className="toast-content">
+                    <p className="toast-title">File Already Synthesized</p>
+                    <p className="toast-desc">You've already converted this textbook!</p>
+                </div>
+                <button
+                    className="toast-action"
+                    onClick={() => { setShowDuplicateToast(false); navigate('/dashboard'); }}
+                >
+                    Go to Video <ChevronRight size={16} />
+                </button>
+            </div>
+
+            <ProcessingModal
+                isOpen={isProcessingModalOpen}
+                onComplete={() => {
+                    setIsProcessingModalOpen(false);
+                    navigate('/dashboard');
+                }}
+            />
+
+            {/* 1. The "Magic Drop" Upload Zone */}
+            <section className="magic-drop-section stagger-reveal w-full max-w-5xl mx-auto px-6">
+                <div className="section-header text-center mb-10">
+                    <h1 className="text-4xl md:text-5xl font-extrabold text-slate-900 dark:text-white transition-colors duration-500 mb-4 tracking-tight">Ready to conquer {primaryGoal !== 'your' ? `your ${primaryGoal}` : 'your'} exams?</h1>
+                    <p className="text-slate-600 dark:text-gray-400 transition-colors duration-500 text-xl font-medium">Drop your textbook or syllabus PDF here to initialize the data core and generate your personalized lectures.</p>
+                </div>
+
+                <div
+                    className={`magic-drop-zone ${dragState === 'dragover' ? 'glow-active' : ''}`}
+                    onDragOver={handleDragOver}
+                    onDragLeave={handleDragLeave}
+                    onDrop={handleDrop}
+                    onClick={() => dragState === 'idle' && document.getElementById('file-upload').click()}
+                >
+                    <input
+                        type="file"
+                        id="file-upload"
+                        accept=".pdf,.epub"
+                        style={{ display: 'none' }}
+                        onChange={handleDrop}
+                    />
+
+                    {/* Laser scanning animation on hover/drag */}
+                    <div className="laser-scanner"></div>
+
+                    <div className="drop-content w-full">
+                        {dragState === 'processing' ? (
+                            <div className="flex flex-col items-center justify-center h-full">
+                                <Zap size={48} className="text-cyan mb-6 shatter-icon pulse-slow" />
+                                <div className="terminal-container w-full max-w-sm text-left">
+                                    {terminalLogs.map((log, i) => (
+                                        <div key={i} className="terminal-line typing-effect text-cyan-400 font-mono text-sm mb-2 drop-shadow-[0_0_5px_rgba(34,211,238,0.5)]">
+                                            {log}
+                                        </div>
+                                    ))}
+                                    {/* Blinking cursor */}
+                                    {terminalLogs.length < 3 && (
+                                        <div className="w-2 h-4 bg-cyan-400 terminal-cursor inline-block animate-pulse ml-1"></div>
+                                    )}
+                                </div>
+                            </div>
+                        ) : (
+                            <div className="flex flex-col items-center">
+                                <div className={`icon-container ${dragState === 'dragover' ? 'float-up' : 'float-idle'}`}>
+                                    <UploadCloud size={80} className={dragState === 'dragover' ? 'text-cyan' : 'text-purple'} />
+                                </div>
+
+                                <MagneticButton onClick={(e) => {
+                                    e.stopPropagation();
+                                    document.getElementById('file-upload').click();
+                                }} styleClass="magnetic-btn-upload mt-12 bg-gradient-to-r from-cyan-500 to-purple-500 border-none text-white hover:opacity-90 shadow-[0_10px_30px_rgba(34,211,238,0.4)]">
+                                    [ INITIALIZE DATA CORE ]
+                                </MagneticButton>
+
+                                <div className="mt-8 flex flex-col items-center gap-2">
+                                    <p className="text-slate-500 dark:text-gray-500 text-sm tracking-widest font-mono transition-colors">MAX FRAGMENT SIZE: 50MB</p>
+                                    <div className="flex gap-2">
+                                        <span className="file-badge">PDF</span>
+                                        <span className="file-badge">EPUB</span>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                </div>
+            </section>
+
+            {/* 2. "My Learning" Stats Section */}
+            <section className="stats-section stagger-reveal mt-12 mb-8 w-full max-w-4xl mx-auto px-6">
+                <div className="stats-grid">
+                    {/* Card 1: Videos Generated */}
+                    <div className="stat-card glass-panel flex items-center justify-between p-8 hover:shadow-[inset_0_0_30px_rgba(168,85,247,0.15)] transition-shadow duration-300">
+                        <div>
+                            <p className="text-gray-400 font-semibold mb-2">Videos Generated</p>
+                            <h3 className="text-5xl font-black text-slate-800 dark:text-white drop-shadow-sm dark:drop-shadow-[0_0_10px_rgba(255,255,255,0.3)] transition-colors duration-500">12</h3>
+                            <div className="text-cyan-400 text-sm font-bold mt-2 tracking-wide">+2 this week</div>
+                        </div>
+                        <div className="h-16 w-16 rounded-full bg-purple-500/20 flex items-center justify-center border border-purple-500/30">
+                            <Zap className="text-purple-400 drop-shadow-[0_0_8px_rgba(168,85,247,0.8)]" size={32} />
+                        </div>
+                    </div>
+
+                    {/* Card 2: Lectures Completed */}
+                    <div className="stat-card glass-panel flex items-center justify-between p-8 hover:shadow-[inset_0_0_30px_rgba(52,211,153,0.15)] transition-shadow duration-300">
+                        <div>
+                            <p className="text-gray-400 font-semibold mb-2">Lectures Completed</p>
+                            <h3 className="text-5xl font-black text-slate-800 dark:text-white drop-shadow-sm dark:drop-shadow-[0_0_10px_rgba(255,255,255,0.3)] transition-colors duration-500">8</h3>
+                            <div className="text-emerald-400 text-sm font-bold mt-2 tracking-wide">+3 this week</div>
+                        </div>
+                        <div className="h-16 w-16 rounded-full bg-emerald-500/20 flex items-center justify-center border border-emerald-500/30">
+                            <CheckCircle2 className="text-emerald-400 drop-shadow-[0_0_8px_rgba(52,211,153,0.8)]" size={32} />
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            {/* 3. "Your Library" Section */}
+            <section className="library-section stagger-reveal mt-16 w-full max-w-6xl mx-auto px-6">
+                <div className="flex items-center justify-between mb-8">
+                    <h2 className="text-3xl font-bold text-slate-900 dark:text-white transition-colors duration-500 flex items-center gap-3">
+                        <BookOpen className="text-purple-600 dark:text-purple" /> Your Textbooks
+                    </h2>
+                    <button className="text-slate-500 dark:text-gray-400 hover:text-slate-900 dark:hover:text-white transition-colors flex items-center text-sm font-semibold tracking-wide uppercase">
+                        View All <ChevronRight size={16} />
+                    </button>
+                </div>
+
+                {/* Horizontal Scroll / Grid -> Replaced with Empty State If No Conversions */}
+                {!hasConversions ? (
+                    <div className="empty-state-container">
+                        <div className="empty-state-content glass-panel">
+                            <Layers size={64} className="empty-icon pulse-slow" color="#4b5563" />
+                            <h3 className="empty-text">Your library is empty.</h3>
+                            <p className="empty-subtext">Drop a textbook above to generate your first lecture.</p>
+                        </div>
+                    </div>
+                ) : (
+                    <div className="library-grid">
+                        {libraryItems.map((item) => (
+                            <div
+                                key={item.id}
+                                className="library-card glass-panel group relative"
+                                onClick={() => navigate(`/curriculum/${item.id}`)}
+                            >
+                                <div className="card-overlay">
+                                    <BookOpen size={48} color="white" className="overlay-play" />
+                                    <span className="overlay-text">View Curriculum</span>
+                                </div>
+
+                                <div className="card-content flex flex-col h-full">
+                                    <div className="card-icon-wrapper mb-4" style={{ backgroundColor: `${item.color}15`, border: `1px solid ${item.color}30` }}>
+                                        {item.icon}
+                                    </div>
+                                    <h3 className="text-slate-900 dark:text-white font-bold text-lg leading-tight line-clamp-2 transition-colors duration-500">{item.title}</h3>
+                                    <p className="text-gray-500 text-xs mt-1 font-semibold tracking-wide mb-6 flex-1">
+                                        12 Chapters • 5 Generated
+                                    </p>
+
+                                    <div className="progress-container">
+                                        <div className="flex justify-between text-xs font-mono mb-2">
+                                            <span className="text-gray-400">MASTERY</span>
+                                            <span style={{ color: item.color, filter: 'drop-shadow(0 0 5px currentColor)', fontWeight: 600 }}>{item.progress}%</span>
+                                        </div>
+                                        {/* Thicker progress bar with matched glow */}
+                                        <div className="progress-track" style={{ height: '6px', backgroundColor: '#1f2937' }}>
+                                            <div
+                                                className="progress-fill"
+                                                style={{
+                                                    width: `${item.progress}%`,
+                                                    background: `linear-gradient(90deg, ${item.color}80, ${item.color})`,
+                                                    boxShadow: `0 0 8px ${item.color}`,
+                                                    borderRadius: '9999px',
+                                                    height: '100%'
+                                                }}
+                                            ></div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                )}
+            </section>
+
+            <style>{`
+                .upload-page-container {
+                    min-height: 100vh;
+                    background-color: #f8fafc;
+                    display: flex;
+                    flex-direction: column;
+                    align-items: center;
+                    font-family: 'Inter', system-ui, sans-serif;
+                    position: relative;
+                }
+                .dark .upload-page-container {
+                    background-color: #030305;
+                }
+
+                /* Typography Utilities */
+                .text-center { text-align: center; }
+                .text-white { color: white; }
+                .text-gray-400 { color: #9ca3af; }
+                .text-gray-500 { color: #6b7280; }
+                .text-cyan { color: #22d3ee; }
+                .text-purple { color: #a855f7; }
+                .font-bold { font-weight: 700; }
+                .font-mono { font-family: monospace; }
+                .text-4xl { font-size: 2.25rem; }
+                .text-3xl { font-size: 1.875rem; }
+                .text-2xl { font-size: 1.5rem; }
+                .text-lg { font-size: 1.125rem; }
+                .text-sm { font-size: 0.875rem; }
+                .text-xs { font-size: 0.75rem; }
+                .mb-2 { margin-bottom: 0.5rem; }
+                .mb-4 { margin-bottom: 1rem; }
+                .mb-6 { margin-bottom: 1.5rem; }
+                .mb-8 { margin-bottom: 2rem; }
+                .mt-4 { margin-top: 1rem; }
+                .mt-8 { margin-top: 2rem; }
+                .mt-16 { margin-top: 4rem; }
+                .pt-24 { padding-top: 6rem; }
+                .pb-40 { padding-bottom: 10rem; }
+                .flex { display: flex; }
+                .flex-col { flex-direction: column; }
+                .items-center { align-items: center; }
+                .justify-between { justify-content: space-between; }
+                .gap-3 { gap: 0.75rem; }
+                .w-full { width: 100%; }
+                .max-w-6xl { max-width: 72rem; }
+                .mx-auto { margin-left: auto; margin-right: auto; }
+                .px-6 { padding-left: 1.5rem; padding-right: 1.5rem; }
+                .tracking-widest { letter-spacing: 0.1em; }
+                .tracking-wide { letter-spacing: 0.05em; }
+                .uppercase { text-transform: uppercase; }
+                .flex-1 { flex: 1; }
+                .leading-tight { line-height: 1.25; }
+
+                /* Stagger Reveal */
+                .stagger-reveal {
+                    opacity: 0;
+                    transform: translateY(30px);
+                    transition: all 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+                }
+                .stagger-reveal.revealed {
+                    opacity: 1;
+                    transform: translateY(0);
+                }
+
+                /* Magic Drop Zone */
+                .magic-drop-section {
+                    z-index: 10;
+                }
+                .magic-drop-zone {
+                    width: 100%;
+                    min-height: 480px; 
+                    background: rgba(255, 255, 255, 0.4);
+                    backdrop-filter: blur(12px);
+                    -webkit-backdrop-filter: blur(12px);
+                    border: 2px dashed #e5e7eb;
+                    box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+                    border-radius: 2rem;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    position: relative;
+                    overflow: hidden;
+                    cursor: pointer;
+                    transition: all 0.3s ease;
+                    animation: borderPulseLight 4s infinite alternate;
+                }
+                .dark .magic-drop-zone {
+                    background: rgba(255, 255, 255, 0.08);
+                    border: 2px dashed rgba(255, 255, 255, 0.2);
+                    animation: borderPulse 4s infinite alternate;
+                }
+                @keyframes borderPulse {
+                    0% { border-color: rgba(34, 211, 238, 0.2); box-shadow: inset 0 0 0 rgba(34, 211, 238, 0); }
+                    100% { border-color: rgba(34, 211, 238, 0.6); box-shadow: inset 0 0 20px rgba(34, 211, 238, 0.1); }
+                }
+                @keyframes borderPulseLight {
+                    0% { border-color: rgba(34, 211, 238, 0.2); box-shadow: inset 0 0 0 rgba(34, 211, 238, 0); }
+                    100% { border-color: rgba(34, 211, 238, 0.8); box-shadow: inset 0 0 20px rgba(34, 211, 238, 0.05); }
+                }
+                .magic-drop-zone.glow-active {
+                    border-color: #22d3ee;
+                    background: rgba(34, 211, 238, 0.05);
+                    box-shadow: 0 0 40px rgba(34, 211, 238, 0.2), inset 0 0 40px rgba(34, 211, 238, 0.1);
+                }
+                .magic-drop-zone:hover:not(.glow-active) {
+                    border-color: rgba(168, 85, 247, 0.3); /* Purple hint on hover */
+                    background: rgba(168, 85, 247, 0.05);
+                }
+                .dark .magic-drop-zone:hover:not(.glow-active) {
+                    border-color: rgba(168, 85, 247, 0.5); /* Purple hint on hover */
+                }
+
+                /* Laser Scanner Animation */
+                .laser-scanner {
+                    position: absolute;
+                    top: -100px;
+                    left: 0;
+                    width: 100%;
+                    height: 150px;
+                    background: linear-gradient(to bottom, transparent, rgba(34, 211, 238, 0.1) 80%, rgba(34, 211, 238, 0.8) 100%);
+                    opacity: 0;
+                    pointer-events: none;
+                    transform: translateY(-100%);
+                    transition: opacity 0.3s;
+                }
+                .magic-drop-zone.glow-active .laser-scanner, .magic-drop-zone:hover .laser-scanner {
+                    opacity: 1;
+                    animation: scan 2.5s linear infinite;
+                }
+                @keyframes scan {
+                    0% { transform: translateY(-100px); }
+                    100% { transform: translateY(450px); }
+                }
+
+                .icon-container { transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1); }
+                .icon-container.float-up { transform: translateY(-15px) scale(1.1); filter: drop-shadow(0 0 20px rgba(34,211,238,0.5)); }
+                .icon-container.float-idle { animation: idleFloat 2s ease-in-out infinite alternate; }
+                @keyframes idleFloat {
+                    0% { transform: translateY(3px); }
+                    100% { transform: translateY(-3px); }
+                }
+
+                .file-badge {
+                    background: rgba(255, 255, 255, 0.8);
+                    border: 1px solid rgba(0, 0, 0, 0.1);
+                    color: #64748b;
+                    font-size: 0.7rem;
+                    font-weight: 600;
+                    padding: 0.2rem 0.6rem;
+                    border-radius: 9999px;
+                    letter-spacing: 0.05em;
+                }
+                .dark .file-badge {
+                    background: rgba(15, 23, 42, 0.5);
+                    border-color: rgba(255, 255, 255, 0.1);
+                    color: #9ca3af;
+                }
+
+                .typing-effect {
+                    overflow: hidden;
+                    white-space: nowrap;
+                    animation: typing 0.5s steps(40, end);
+                }
+                @keyframes typing {
+                    from { max-width: 0 }
+                    to { max-width: 100% }
+                }
+
+                .magnetic-btn-upload {
+                    background: rgba(255,255,255,0.8);
+                    color: #0f172a; font-size: 1rem; font-weight: 700; padding: 1.25rem 2.5rem;
+                    border: 1px solid rgba(0,0,0,0.1); border-radius: 4rem; cursor: pointer;
+                    box-shadow: 0 4px 15px rgba(0,0,0,0.05); transition: all 0.3s ease;
+                    letter-spacing: 0.1em;
+                    backdrop-filter: blur(8px);
+                }
+                .dark .magnetic-btn-upload {
+                    background: rgba(255,255,255,0.1);
+                    color: white;
+                    border-color: rgba(255,255,255,0.2);
+                    box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+                }
+                .magnetic-btn-upload:hover { 
+                    background: white; color: #030305; box-shadow: 0 0 30px rgba(0,0,0,0.1); 
+                }
+                .dark .magnetic-btn-upload:hover { 
+                    box-shadow: 0 0 30px rgba(255,255,255,0.6); 
+                }
+
+                .pulse-slow { animation: pulseSlow 2s infinite alternate; }
+                @keyframes pulseSlow { from { opacity: 0.8; transform: scale(0.98); } to { opacity: 1; transform: scale(1.02); } }
+
+                /* Toast Notification */
+                .duplicate-toast {
+                    position: fixed;
+                    top: -100px;
+                    left: 50%;
+                    transform: translateX(-50%);
+                    background: rgba(15, 23, 42, 0.9);
+                    backdrop-filter: blur(12px);
+                    border: 1px solid rgba(245, 158, 11, 0.3); /* Amber/Orange */
+                    border-bottom: 2px solid #f59e0b;
+                    border-radius: 1rem;
+                    padding: 1rem 1.5rem;
+                    display: flex;
+                    align-items: center;
+                    gap: 1rem;
+                    box-shadow: 0 20px 40px rgba(0,0,0,0.5), 0 0 20px rgba(245, 158, 11, 0.2);
+                    z-index: 100;
+                    transition: top 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+                }
+                .duplicate-toast.toast-visible { top: 2rem; }
+                .toast-content { display: flex; flex-direction: column; }
+                .toast-title { color: white; font-weight: 700; font-size: 1rem; }
+                .toast-desc { color: #d1d5db; font-size: 0.875rem; }
+                .toast-action {
+                    margin-left: 1rem; padding: 0.5rem 1rem;
+                    background: rgba(245, 158, 11, 0.1); color: #f59e0b;
+                    border: 1px solid rgba(245, 158, 11, 0.2); border-radius: 0.5rem;
+                    font-weight: 600; font-size: 0.875rem; display: flex; align-items: center; gap: 0.25rem;
+                    cursor: pointer; transition: all 0.2s;
+                }
+                .toast-action:hover { background: #f59e0b; color: #020617; }
+
+                /* Library Grid */
+                .library-grid {
+                    display: grid;
+                    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+                    gap: 1.5rem;
+                    width: 100%;
+                }
+                .library-card {
+                    background: rgba(255, 255, 255, 0.8);
+                    border: 1px solid #e2e8f0;
+                    box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+                    border-radius: 1.25rem;
+                    padding: 1.5rem;
+                    position: relative;
+                    overflow: hidden;
+                    cursor: pointer;
+                    height: 220px;
+                    transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+                }
+                .dark .library-card {
+                    background: rgba(255, 255, 255, 0.05);
+                    border-color: rgba(255, 255, 255, 0.1);
+                    box-shadow: none;
+                }
+                .library-card:hover {
+                    transform: translateY(-8px);
+                    border-color: rgba(0, 0, 0, 0.1);
+                    box-shadow: 0 20px 40px rgba(0,0,0,0.05);
+                }
+                .dark .library-card:hover {
+                    border-color: rgba(255, 255, 255, 0.2);
+                    box-shadow: 0 20px 40px rgba(0,0,0,0.4);
+                }
+                .card-icon-wrapper {
+                    width: 48px; border-radius: 0.75rem; display: flex; align-items: center; justify-content: center;
+                    aspect-ratio: 1;
+                }
+
+                .card-overlay {
+                    position: absolute;
+                    inset: 0;
+                    background: rgba(255, 255, 255, 0.85);
+                    backdrop-filter: blur(4px);
+                    display: flex;
+                    flex-direction: column;
+                    align-items: center;
+                    justify-content: center;
+                    gap: 0.5rem;
+                    opacity: 0;
+                    transition: opacity 0.3s ease;
+                    z-index: 10;
+                }
+                .dark .card-overlay {
+                    background: rgba(15, 23, 42, 0.85);
+                }
+                .library-card:hover .card-overlay { opacity: 1; }
+                .overlay-text { color: #0f172a; font-weight: 600; font-size: 1rem; letter-spacing: 0.05em; }
+                .dark .overlay-text { color: white; }
+                .overlay-play { filter: drop-shadow(0 0 10px rgba(0,0,0,0.1)); transition: transform 0.2s; color: #0f172a !important; }
+                .dark .overlay-play { filter: drop-shadow(0 0 10px rgba(255,255,255,0.5)); color: white !important; }
+                .library-card:hover .overlay-play { transform: scale(1.1); }
+
+                .progress-track {
+                    height: 6px;
+                    background: rgba(0,0,0,0.05);
+                    border-radius: 999px;
+                    overflow: hidden;
+                    border: 1px solid rgba(0,0,0,0.05);
+                }
+                .dark .progress-track {
+                    background: rgba(0,0,0,0.5);
+                    border-color: rgba(255,255,255,0.05);
+                }
+                .progress-fill {
+                    height: 100%;
+                    border-radius: 999px;
+                }
+
+                /* Stats Section Layout */
+                .stats-grid {
+                    display: grid;
+                    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+                    gap: 1.5rem;
+                }
+                .stat-card {
+                    background: rgba(255, 255, 255, 0.8);
+                    backdrop-filter: blur(16px);
+                    -webkit-backdrop-filter: blur(16px);
+                    border: 1px solid #e2e8f0;
+                    box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+                    border-radius: 1.5rem;
+                    padding: 2rem;
+                    transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+                    position: relative;
+                    overflow: hidden;
+                    cursor: default;
+                }
+                .dark .stat-card {
+                    background: rgba(255, 255, 255, 0.05);
+                    border-color: rgba(255, 255, 255, 0.1);
+                    box-shadow: none;
+                }
+                .stat-card-header {
+                    display: flex;
+                    align-items: flex-start;
+                    justify-content: space-between;
+                }
+                .stat-label {
+                    color: #64748b;
+                    font-size: 0.875rem;
+                    font-weight: 600;
+                    letter-spacing: 0.05em;
+                    text-transform: uppercase;
+                    margin-bottom: 0.25rem;
+                }
+                .dark .stat-label { color: #9ca3af; }
+                .stat-value {
+                    color: #0f172a;
+                    font-size: 3rem;
+                    font-weight: 700;
+                    line-height: 1;
+                    transition: color 0.3s, text-shadow 0.3s;
+                }
+                .dark .stat-value { color: white; }
+                .stat-icon-wrapper {
+                    padding: 0.75rem;
+                    border-radius: 0.75rem;
+                    border: 1px solid transparent;
+                    transition: box-shadow 0.3s;
+                }
+                
+                /* Animations and specific colors */
+                .stat-card:hover {
+                    transform: scale(1.05);
+                    background: white;
+                    border-color: rgba(0, 0, 0, 0.1);
+                }
+                .dark .stat-card:hover {
+                    background: rgba(255, 255, 255, 0.08);
+                    border-color: rgba(255, 255, 255, 0.2);
+                }
+
+                .stat-card:hover .val-purple {
+                    color: #a855f7;
+                    text-shadow: 0 0 25px rgba(168, 85, 247, 0.2);
+                }
+                .dark .stat-card:hover .val-purple {
+                    text-shadow: 0 0 25px rgba(168, 85, 247, 0.6);
+                }
+                .stat-card:hover .val-green {
+                    color: #4ade80;
+                    text-shadow: 0 0 25px rgba(34, 197, 94, 0.2);
+                }
+                .dark .stat-card:hover .val-green {
+                    text-shadow: 0 0 25px rgba(34, 197, 94, 0.6);
+                }
+
+                .max-w-4xl { max-width: 56rem; }
+                .mt-12 { margin-top: 3rem; }
+
+                /* Empty State Styles */
+                .empty-state-container {
+                    display: flex;
+                    justify-content: center;
+                    align-items: center;
+                    padding: 4rem 1rem;
+                    width: 100%;
+                }
+                .empty-state-content {
+                    background: rgba(255, 255, 255, 0.8);
+                    border: 1px dashed #e2e8f0;
+                    box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+                    border-radius: 1.5rem;
+                    padding: 3rem;
+                    display: flex;
+                    flex-direction: column;
+                    align-items: center;
+                    text-align: center;
+                    max-width: 480px;
+                    width: 100%;
+                    backdrop-filter: blur(12px);
+                }
+                .dark .empty-state-content {
+                    background: rgba(255, 255, 255, 0.05);
+                    border-color: rgba(255, 255, 255, 0.1);
+                    box-shadow: none;
+                }
+                .empty-icon {
+                    margin-bottom: 1.5rem;
+                    opacity: 0.6;
+                }
+                .empty-text {
+                    font-size: 1.25rem;
+                    font-weight: 600;
+                    color: #d1d5db; /* gray-300 */
+                    margin-bottom: 0.5rem;
+                }
+                .empty-subtext {
+                    color: #9ca3af; /* gray-400 */
+                    font-size: 0.875rem;
+                    line-height: 1.5;
+                }
+            `}</style>
+        </div>
+    );
+}
