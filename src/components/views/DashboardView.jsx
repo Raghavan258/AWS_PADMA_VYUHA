@@ -13,12 +13,23 @@ export default function DashboardView() {
     const { isDarkMode } = useTheme();
     const dark = isDarkMode;
 
-    const videoData = location.state || {
-        title: mockChapters[0].title,
-        duration: mockChapters[0].duration,
-        chapter: 'Chapter 1',
-        id: mockChapters[0].id
-    };
+    const [courseData, setCourseData] = useState(null);
+    const [isLoading, setIsLoading] = useState(true);
+
+    useEffect(() => {
+        fetch('YOUR_COURSE_API_URL')
+            .then(res => res.json())
+            .then(data => {
+                setCourseData(data);
+                setIsLoading(false);
+            })
+            .catch(err => {
+                console.error('Failed to fetch course data:', err);
+                setIsLoading(false);
+            });
+    }, []);
+
+    const videoData = location.state || {};
 
     const [isPlaying, setIsPlaying] = useState(false);
     const [activeVideoId, setActiveVideoId] = useState(videoData.activeVideoId || mockChapters[0].id);
@@ -84,6 +95,17 @@ export default function DashboardView() {
     const displayChapterTitle = videoData.chapterTitle || videoData.chapter;
     const displayChapters = videoData.playlist || mockChapters;
 
+    if (isLoading) {
+        return (
+            <div className="min-h-screen bg-slate-50 dark:bg-[#0a0f1c] flex items-center justify-center transition-colors duration-500">
+                <div className="flex flex-col items-center gap-4">
+                    <div className="w-12 h-12 border-4 border-[#22d3ee] border-t-transparent rounded-full animate-spin"></div>
+                    <p className="text-slate-600 dark:text-slate-400 font-medium animate-pulse">Loading course content...</p>
+                </div>
+            </div>
+        );
+    }
+
     // ── Theme-aware color tokens ──────────────────────────────
     const panel = dark ? '#0f1623' : '#ffffff';
     const panelBorder = dark ? 'rgba(255,255,255,0.08)' : '#e2e8f0';
@@ -138,11 +160,11 @@ export default function DashboardView() {
                             {displayChapterTitle}
                         </div>
                         <h1 style={{ fontSize: '28px', fontWeight: 800, letterSpacing: '-0.02em', lineHeight: 1.2, color: textPri }}>
-                            {displayTitle}
+                            {courseData?.title || 'Loading...'}
                         </h1>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginTop: '10px', marginLeft: '4px' }}>
                             <span style={{ padding: '4px 10px', borderRadius: '6px', background: dark ? 'rgba(255,255,255,0.08)' : 'white', border: `1px solid ${panelBorder}`, fontSize: '12px', fontFamily: 'monospace', color: textMid }}>
-                                {displayDuration}
+                                {courseData?.currentVideoDuration || '0:00'}
                             </span>
                             <span style={{ width: '4px', height: '4px', borderRadius: '50%', background: '#cbd5e1' }} />
                             <span style={{ fontSize: '13px', fontWeight: 500, color: textSec }}>AI Generated Lecture</span>
@@ -248,8 +270,9 @@ export default function DashboardView() {
                             </h3>
                         </div>
                         <ul style={{ display: 'flex', flexDirection: 'column', gap: '6px', maxHeight: '280px', overflowY: 'auto', paddingRight: '8px' }}>
-                            {mockTakeaways[activeChapterId] ? mockTakeaways[activeChapterId].map((takeaway, idx) => {
-                                const t = idx * 15;
+                            {courseData?.smartNotes ? courseData.smartNotes.map((note, idx) => {
+                                const t = note.time || idx * 15;
+                                const takeawayText = note.text || note;
                                 const isActive = currentTimeRaw >= t && currentTimeRaw < t + 15;
                                 return (
                                     <li key={idx} style={{ display: 'flex', gap: '12px', alignItems: 'flex-start', padding: '10px 12px', borderRadius: '10px', border: isActive ? '1px solid rgba(34,211,238,0.3)' : '1px solid transparent', background: isActive ? 'rgba(34,211,238,0.06)' : 'transparent', cursor: 'pointer', transition: 'all 0.3s' }}
@@ -263,7 +286,7 @@ export default function DashboardView() {
                                             </span>
                                         </div>
                                         <span style={{ fontSize: '14px', lineHeight: 1.55, color: isActive ? textPri : (dark ? 'rgba(255,255,255,0.6)' : '#475569'), fontWeight: isActive ? 500 : 400 }}>
-                                            {takeaway}
+                                            {takeawayText}
                                         </span>
                                     </li>
                                 );
@@ -318,9 +341,9 @@ export default function DashboardView() {
                             <div>
                                 <div style={{ padding: '16px 20px', borderBottom: `1px solid ${panelBorder}`, background: panelSub }}>
                                     <h4 style={{ fontWeight: 600, color: textPri, marginBottom: '4px', fontSize: '14px' }}>Course Content</h4>
-                                    <p style={{ fontSize: '11px', color: textSec, fontFamily: 'monospace' }}>{mockChapters.length} Chapters • 51 min total</p>
+                                    <p style={{ fontSize: '11px', color: textSec, fontFamily: 'monospace' }}>{courseData?.totalChapters || 0} Chapters • {courseData?.totalDuration || 0} min total</p>
                                 </div>
-                                {displayChapters.map((chapter, idx) => {
+                                {courseData?.chapters?.map((chapter, idx) => {
                                     const isActive = activeVideoId === chapter.id;
                                     return (
                                         <div key={idx} onClick={() => setActiveVideoId(chapter.id)} style={{

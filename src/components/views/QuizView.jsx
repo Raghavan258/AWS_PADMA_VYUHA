@@ -7,10 +7,27 @@ import { mockQuestions } from '../../lib/mockData';
 export default function QuizView() {
     const { isDarkMode } = useTheme();
     const navigate = useNavigate();
-    const [currentQuestion, setCurrentQuestion] = useState(0);
+    const [quizData, setQuizData] = useState([]);
+    const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
     const [selectedAnswer, setSelectedAnswer] = useState(null);
     const [isAnswerChecked, setIsAnswerChecked] = useState(false);
     const [userAnswers, setUserAnswers] = useState([]);
+
+    const [isLoading, setIsLoading] = useState(true);
+
+    useEffect(() => {
+        fetch('YOUR_QUIZ_API_URL')
+            .then(res => res.json())
+            .then(data => {
+                setQuizData(data || []);
+                setIsLoading(false);
+            })
+            .catch(err => {
+                console.error('Failed to fetch quiz data:', err);
+                setIsLoading(false);
+            });
+    }, []);
+
     const [isReviewMode, setIsReviewMode] = useState(false);
     const [score, setScore] = useState(0);
     const [isFinished, setIsFinished] = useState(false);
@@ -35,13 +52,13 @@ export default function QuizView() {
 
     const handleSubmit = () => {
         if (!isAnswerChecked) {
-            const isCorrect = selectedAnswer === mockQuestions[currentQuestion].correctAnswer;
+            const isCorrect = selectedAnswer === quizData[currentQuestionIndex].correctAnswer;
             if (isCorrect) setScore(prev => prev + 1);
-            setUserAnswers(prev => [...prev, { questionIdx: currentQuestion, selectedIdx: selectedAnswer, isCorrect }]);
+            setUserAnswers(prev => [...prev, { questionIdx: currentQuestionIndex, selectedIdx: selectedAnswer, isCorrect }]);
             setIsAnswerChecked(true);
         } else {
-            if (currentQuestion < mockQuestions.length - 1) {
-                setCurrentQuestion(prev => prev + 1);
+            if (currentQuestionIndex < quizData.length - 1) {
+                setCurrentQuestionIndex(prev => prev + 1);
                 setSelectedAnswer(null);
                 setIsAnswerChecked(false);
             } else {
@@ -51,9 +68,9 @@ export default function QuizView() {
     };
 
     const handleSkip = () => {
-        setUserAnswers(prev => [...prev, { questionIdx: currentQuestion, selectedIdx: null, isCorrect: false }]);
-        if (currentQuestion < mockQuestions.length - 1) {
-            setCurrentQuestion(prev => prev + 1);
+        setUserAnswers(prev => [...prev, { questionIdx: currentQuestionIndex, selectedIdx: null, isCorrect: false }]);
+        if (currentQuestionIndex < quizData.length - 1) {
+            setCurrentQuestionIndex(prev => prev + 1);
             setSelectedAnswer(null);
             setIsAnswerChecked(false);
         } else {
@@ -78,7 +95,7 @@ export default function QuizView() {
 
                     <div className="flex flex-col gap-6">
                         {userAnswers.map((ua, index) => {
-                            const q = mockQuestions[ua.questionIdx];
+                            const q = quizData[ua.questionIdx];
                             return (
                                 <div key={index} style={{ padding: '1.5rem', background: 'white', border: '1px solid #e2e8f0', borderRadius: '1rem', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }} className="dark:!bg-white/5 dark:!border-white/10">
                                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
@@ -87,7 +104,7 @@ export default function QuizView() {
                                             {ua.isCorrect ? 'Correct' : 'Incorrect'}
                                         </span>
                                     </div>
-                                    <h3 className="text-lg font-semibold text-slate-900 dark:text-white mb-4">{q.question}</h3>
+                                    <h3 className="text-lg font-semibold text-slate-900 dark:text-white mb-4">{q.questionText}</h3>
                                     <div className="flex flex-col gap-2">
                                         {q.options.map((opt, oIdx) => {
                                             const isUserPick = ua.selectedIdx === oIdx;
@@ -140,14 +157,14 @@ export default function QuizView() {
                 <div style={{ width: '100%', maxWidth: '480px', padding: '3rem', textAlign: 'center', background: 'white', border: '1px solid #e2e8f0', borderRadius: '1.5rem', boxShadow: '0 4px 20px rgba(0,0,0,0.06)' }} className="dark:!bg-white/5 dark:!border-white/10">
                     <Award size={64} style={{ color: '#0f172a', margin: '0 auto 1.5rem' }} className="dark:!text-white" />
                     <h2 className="text-3xl font-bold mb-2 text-slate-900 dark:text-white">Quiz Results</h2>
-                    <p className="text-slate-500 dark:text-gray-400 mb-8 text-lg">You scored {score} out of {mockQuestions.length}</p>
+                    <p className="text-slate-500 dark:text-gray-400 mb-8 text-lg">You scored {score} out of {quizData.length}</p>
                     <div style={{ background: '#f8fafc', padding: '1.5rem', borderRadius: '1rem', marginBottom: '2rem', border: '1px solid #e2e8f0' }} className="dark:!bg-black/20 dark:!border-white/5">
-                        <div className="text-5xl font-extrabold text-slate-900 dark:text-white">{Math.round((score / mockQuestions.length) * 100)}%</div>
+                        <div className="text-5xl font-extrabold text-slate-900 dark:text-white">{quizData.length > 0 ? Math.round((score / quizData.length) * 100) : 0}%</div>
                         <div className="text-slate-500 dark:text-white/50 text-sm font-medium uppercase tracking-widest mt-2">Final Score</div>
                     </div>
                     <div style={{ display: 'flex', gap: '12px', justifyContent: 'center', flexWrap: 'wrap' }}>
                         {[
-                            { label: 'Retake Quiz', onClick: () => { setCurrentQuestion(0); setSelectedAnswer(null); setScore(0); setTimeLeft(300); setIsFinished(false); setUserAnswers([]); } },
+                            { label: 'Retake Quiz', onClick: () => { setCurrentQuestionIndex(0); setSelectedAnswer(null); setScore(0); setTimeLeft(300); setIsFinished(false); setUserAnswers([]); } },
                             { label: 'Review Answers', onClick: () => setIsReviewMode(true) },
                             { label: 'Return to Video', onClick: () => navigate('/dashboard') },
                         ].map(btn => (
@@ -165,8 +182,40 @@ export default function QuizView() {
         );
     }
 
+    // ---- LOADING AND EMPTY STATES ----
+    if (isLoading) {
+        return (
+            <div className="flex items-center justify-center min-h-screen bg-slate-50 dark:bg-[#0a0f1c] transition-colors duration-500">
+                <div className="w-10 h-10 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin"></div>
+            </div>
+        );
+    }
+
+    if (!quizData || quizData.length === 0) {
+        return (
+            <div className="flex flex-col items-center justify-center min-h-screen p-4 bg-slate-50 dark:bg-[#0a0f1c] transition-colors duration-500">
+                <div className="w-full max-w-[500px] text-center bg-white dark:bg-white/5 border border-slate-200 dark:border-white/10 rounded-2xl p-8 shadow-sm">
+                    <div className="w-16 h-16 bg-slate-100 dark:bg-white/10 rounded-full flex items-center justify-center mx-auto mb-6">
+                        <Award size={32} className="text-slate-400 dark:text-slate-300" />
+                    </div>
+                    <h2 className="text-2xl font-bold mb-4 text-slate-900 dark:text-white">No Quiz Generated Yet.</h2>
+                    <p className="text-slate-500 dark:text-slate-400 mb-8 leading-relaxed">
+                        Return to the video player and click Generate Quiz to test your knowledge.
+                    </p>
+                    <button
+                        onClick={() => navigate('/dashboard')}
+                        className="inline-flex items-center gap-2 px-6 py-3 rounded-full font-bold text-[14px] transition-all duration-300 bg-slate-900 text-white hover:-translate-y-1 shadow-[0_4px_15px_rgba(0,0,0,0.1)] dark:bg-white dark:text-slate-900"
+                    >
+                        <ArrowLeft size={16} />
+                        Back to Video
+                    </button>
+                </div>
+            </div>
+        );
+    }
+
     // ---- QUIZ SCREEN ----
-    const question = mockQuestions[currentQuestion];
+    const question = quizData[currentQuestionIndex];
 
     return (
         <div className="w-full h-[calc(100vh-80px)] flex flex-col items-center justify-center p-4">
@@ -188,11 +237,11 @@ export default function QuizView() {
                 <div style={{ padding: '2.5rem', background: 'white', border: '1px solid #e2e8f0', borderRadius: '1.5rem', boxShadow: '0 2px 10px rgba(0,0,0,0.04)', marginBottom: '3rem' }} className="dark:!bg-white/5 dark:!border-white/10">
 
                     <div style={{ fontSize: '12px', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '1rem' }}>
-                        Question {currentQuestion + 1} of {mockQuestions.length}
+                        Question {currentQuestionIndex + 1} of {quizData.length}
                     </div>
 
                     <h2 className="text-2xl font-bold mb-8 text-slate-900 dark:text-white leading-relaxed">
-                        {question.question}
+                        {question.questionText}
                     </h2>
 
                     {question.options.map((option, idx) => {
@@ -263,7 +312,7 @@ export default function QuizView() {
                             color: selectedAnswer === null ? (isDarkMode ? '#64748b' : '#94a3b8') : (isDarkMode ? '#0f172a' : '#ffffff')
                         }}
                     >
-                        {!isAnswerChecked ? 'Check Answer' : currentQuestion === mockQuestions.length - 1 ? 'Finish Quiz' : 'Next Question'}
+                        {!isAnswerChecked ? 'Check Answer' : currentQuestionIndex === quizData.length - 1 ? 'Finish Quiz' : 'Next Question'}
                         <ArrowRight size={18} />
                     </button>
                 </div>

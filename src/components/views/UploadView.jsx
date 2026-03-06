@@ -11,6 +11,9 @@ export default function UploadView() {
     const [terminalLogs, setTerminalLogs] = useState([]);
     const [isProcessingModalOpen, setIsProcessingModalOpen] = useState(false);
     const [primaryGoal, setPrimaryGoal] = useState('your');
+    const [courses, setCourses] = useState([]);
+    const [isLoading, setIsLoading] = useState(true);
+    const [userStats, setUserStats] = useState({ videosGenerated: 0, lecturesCompleted: 0, videosWeekly: 0, lecturesWeekly: 0 });
 
     // Route Protection & State Reading
     useEffect(() => {
@@ -30,16 +33,28 @@ export default function UploadView() {
         }
     }, [navigate]);
 
-    // Mock Library Data (Whole Textbooks)
-    const libraryItems = [
-        { id: 1, title: 'Biology Grade 12', progress: 80, time: '5m 20s left', color: '#f472b6', icon: <FileText size={24} color="#f472b6" /> },
-        { id: 2, title: 'Advanced Engineering Mathematics', progress: 100, time: 'Completed', color: '#4ade80', icon: <CheckCircle2 size={24} color="#4ade80" /> },
-        { id: 3, title: 'Principles of Economics', progress: 35, time: '12m 45s left', color: '#22d3ee', icon: <BookOpen size={24} color="#22d3ee" /> },
-        { id: 4, title: 'World History: Deep Dive', progress: 15, time: '40m left', color: '#fbbf24', icon: <Clock size={24} color="#fbbf24" /> }
-    ];
+    // Data Fetching
+    useEffect(() => {
+        fetch('YOUR_AWS_API_GATEWAY_URL')
+            .then(res => res.json())
+            .then(data => {
+                setCourses(data || []);
+                setIsLoading(false);
+            })
+            .catch(err => {
+                console.error('Failed to fetch courses:', err);
+                setIsLoading(false);
+            });
+    }, []);
 
-    // For manual local testing: set to false to see the empty state, true to see data.
-    const hasConversions = libraryItems.length > 0;
+    useEffect(() => {
+        fetch('YOUR_STATS_API_URL')
+            .then(res => res.json())
+            .then(data => {
+                setUserStats(data || { videosGenerated: 0, lecturesCompleted: 0, videosWeekly: 0, lecturesWeekly: 0 });
+            })
+            .catch(err => console.error('Failed to fetch stats:', err));
+    }, []);
 
     // Scroll reveal logic
     useEffect(() => {
@@ -201,8 +216,10 @@ export default function UploadView() {
                     <div className="stat-card glass-panel flex items-center justify-between p-8 hover:shadow-[inset_0_0_30px_rgba(168,85,247,0.15)] transition-shadow duration-300">
                         <div>
                             <p className="text-gray-400 font-semibold mb-2">Videos Generated</p>
-                            <h3 className="text-5xl font-black text-slate-800 dark:text-white drop-shadow-sm dark:drop-shadow-[0_0_10px_rgba(255,255,255,0.3)] transition-colors duration-500">12</h3>
-                            <div className="text-cyan-400 text-sm font-bold mt-2 tracking-wide">+2 this week</div>
+                            <h3 className="text-5xl font-black text-slate-800 dark:text-white drop-shadow-sm dark:drop-shadow-[0_0_10px_rgba(255,255,255,0.3)] transition-colors duration-500">{userStats.videosGenerated}</h3>
+                            {userStats.videosWeekly > 0 && (
+                                <div className="text-cyan-400 text-sm font-bold mt-2 tracking-wide">+{userStats.videosWeekly} this week</div>
+                            )}
                         </div>
                         <div className="h-16 w-16 rounded-full bg-purple-500/20 flex items-center justify-center border border-purple-500/30">
                             <Zap className="text-purple-400 drop-shadow-[0_0_8px_rgba(168,85,247,0.8)]" size={32} />
@@ -213,8 +230,10 @@ export default function UploadView() {
                     <div className="stat-card glass-panel flex items-center justify-between p-8 hover:shadow-[inset_0_0_30px_rgba(52,211,153,0.15)] transition-shadow duration-300">
                         <div>
                             <p className="text-gray-400 font-semibold mb-2">Lectures Completed</p>
-                            <h3 className="text-5xl font-black text-slate-800 dark:text-white drop-shadow-sm dark:drop-shadow-[0_0_10px_rgba(255,255,255,0.3)] transition-colors duration-500">8</h3>
-                            <div className="text-emerald-400 text-sm font-bold mt-2 tracking-wide">+3 this week</div>
+                            <h3 className="text-5xl font-black text-slate-800 dark:text-white drop-shadow-sm dark:drop-shadow-[0_0_10px_rgba(255,255,255,0.3)] transition-colors duration-500">{userStats.lecturesCompleted}</h3>
+                            {userStats.lecturesWeekly > 0 && (
+                                <div className="text-emerald-400 text-sm font-bold mt-2 tracking-wide">+{userStats.lecturesWeekly} this week</div>
+                            )}
                         </div>
                         <div className="h-16 w-16 rounded-full bg-emerald-500/20 flex items-center justify-center border border-emerald-500/30">
                             <CheckCircle2 className="text-emerald-400 drop-shadow-[0_0_8px_rgba(52,211,153,0.8)]" size={32} />
@@ -235,58 +254,78 @@ export default function UploadView() {
                 </div>
 
                 {/* Horizontal Scroll / Grid -> Replaced with Empty State If No Conversions */}
-                {!hasConversions ? (
+                {isLoading ? (
+                    <div className="empty-state-container">
+                        <div className="empty-state-content glass-panel" style={{ padding: '2rem' }}>
+                            <Layers size={48} className="empty-icon pulse-slow" color="#4b5563" />
+                            <h3 className="empty-text">Loading data core...</h3>
+                        </div>
+                    </div>
+                ) : courses.length === 0 ? (
                     <div className="empty-state-container">
                         <div className="empty-state-content glass-panel">
                             <Layers size={64} className="empty-icon pulse-slow" color="#4b5563" />
-                            <h3 className="empty-text">Your library is empty.</h3>
-                            <p className="empty-subtext">Drop a textbook above to generate your first lecture.</p>
+                            <h3 className="empty-text">Your data core is empty.</h3>
+                            <p className="empty-subtext">Drop a syllabus or textbook PDF above to generate your first custom video lecture.</p>
                         </div>
                     </div>
                 ) : (
                     <div className="library-grid">
-                        {libraryItems.map((item) => (
-                            <div
-                                key={item.id}
-                                className="library-card glass-panel group relative"
-                                onClick={() => navigate(`/curriculum/${item.id}`)}
-                            >
-                                <div className="card-overlay">
-                                    <BookOpen size={48} color="white" className="overlay-play" />
-                                    <span className="overlay-text">View Curriculum</span>
-                                </div>
+                        {courses.map((course, index) => {
+                            const color = course.color || ['#f472b6', '#4ade80', '#22d3ee', '#fbbf24'][index % 4];
+                            const defaultIcon = [
+                                <FileText size={24} color={color} />,
+                                <CheckCircle2 size={24} color={color} />,
+                                <BookOpen size={24} color={color} />,
+                                <Clock size={24} color={color} />
+                            ][index % 4];
+                            const icon = course.icon || defaultIcon;
+                            const progress = course.progress || 0;
+                            const chapterCount = course.chapterCount || 0;
 
-                                <div className="card-content flex flex-col h-full">
-                                    <div className="card-icon-wrapper mb-4" style={{ backgroundColor: `${item.color}15`, border: `1px solid ${item.color}30` }}>
-                                        {item.icon}
+                            return (
+                                <div
+                                    key={course.id || index}
+                                    className="library-card glass-panel group relative"
+                                    onClick={() => navigate(`/curriculum/${course.id || index}`)}
+                                >
+                                    <div className="card-overlay">
+                                        <BookOpen size={48} color="white" className="overlay-play" />
+                                        <span className="overlay-text">View Curriculum</span>
                                     </div>
-                                    <h3 className="text-slate-900 dark:text-white font-bold text-lg leading-tight line-clamp-2 transition-colors duration-500">{item.title}</h3>
-                                    <p className="text-gray-500 text-xs mt-1 font-semibold tracking-wide mb-6 flex-1">
-                                        12 Chapters • 5 Generated
-                                    </p>
 
-                                    <div className="progress-container">
-                                        <div className="flex justify-between text-xs font-mono mb-2">
-                                            <span className="text-gray-400">MASTERY</span>
-                                            <span style={{ color: item.color, filter: 'drop-shadow(0 0 5px currentColor)', fontWeight: 600 }}>{item.progress}%</span>
+                                    <div className="card-content flex flex-col h-full">
+                                        <div className="card-icon-wrapper mb-4" style={{ backgroundColor: `${color}15`, border: `1px solid ${color}30` }}>
+                                            {icon}
                                         </div>
-                                        {/* Thicker progress bar with matched glow */}
-                                        <div className="progress-track" style={{ height: '6px', backgroundColor: '#1f2937' }}>
-                                            <div
-                                                className="progress-fill"
-                                                style={{
-                                                    width: `${item.progress}%`,
-                                                    background: `linear-gradient(90deg, ${item.color}80, ${item.color})`,
-                                                    boxShadow: `0 0 8px ${item.color}`,
-                                                    borderRadius: '9999px',
-                                                    height: '100%'
-                                                }}
-                                            ></div>
+                                        <h3 className="text-slate-900 dark:text-white font-bold text-lg leading-tight line-clamp-2 transition-colors duration-500">{course.title}</h3>
+                                        <p className="text-gray-500 text-xs mt-1 font-semibold tracking-wide mb-6 flex-1">
+                                            {chapterCount} Chapters
+                                        </p>
+
+                                        <div className="progress-container">
+                                            <div className="flex justify-between text-xs font-mono mb-2">
+                                                <span className="text-gray-400">MASTERY</span>
+                                                <span style={{ color: color, filter: 'drop-shadow(0 0 5px currentColor)', fontWeight: 600 }}>{progress}%</span>
+                                            </div>
+                                            {/* Thicker progress bar with matched glow */}
+                                            <div className="progress-track" style={{ height: '6px', backgroundColor: '#1f2937' }}>
+                                                <div
+                                                    className="progress-fill"
+                                                    style={{
+                                                        width: `${progress}%`,
+                                                        background: `linear-gradient(90deg, ${color}80, ${color})`,
+                                                        boxShadow: `0 0 8px ${color}`,
+                                                        borderRadius: '9999px',
+                                                        height: '100%'
+                                                    }}
+                                                ></div>
+                                            </div>
                                         </div>
                                     </div>
                                 </div>
-                            </div>
-                        ))}
+                            );
+                        })}
                     </div>
                 )}
             </section>
