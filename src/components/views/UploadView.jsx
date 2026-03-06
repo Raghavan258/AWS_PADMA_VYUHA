@@ -76,7 +76,7 @@ export default function UploadView() {
         if (dragState !== 'processing') setDragState('idle');
     };
 
-    const handleDrop = (e) => {
+    const handleDrop = async (e) => {
         e.preventDefault();
         const files = e.dataTransfer?.files || e.target?.files;
         if (!files || files.length === 0) return;
@@ -96,24 +96,35 @@ export default function UploadView() {
                 await new Promise(r => setTimeout(r, 800));
                 setTerminalLogs(prev => [...prev, logs[i]]);
             }
-
-            // After sequence finishes, navigate or show duplicate
-            await new Promise(r => setTimeout(r, 1000));
-
-            // Simulate Duplicate Detection
-            if (file.name.toLowerCase().includes('duplicate') || Math.random() < 0.3) {
-                setDragState('idle');
-                setTerminalLogs([]);
-                setShowDuplicateToast(true);
-                setTimeout(() => setShowDuplicateToast(false), 5000);
-            } else {
-                setDragState('idle');
-                setTerminalLogs([]);
-                setIsProcessingModalOpen(true);
-            }
         };
 
         simulateTerminalSequence();
+
+        try {
+            // Prepare file for upload
+            const formData = new FormData();
+            formData.append('file', file);
+
+            const response = await fetch('https://0la9c5d8ve.execute-api.us-east-1.amazonaws.com/dev/upload', {
+                method: 'POST',
+                body: formData,
+            });
+
+            if (!response.ok) {
+                throw new Error('Upload failed');
+            }
+
+            setDragState('idle');
+            setTerminalLogs([]);
+            setIsProcessingModalOpen(true);
+
+        } catch (error) {
+            console.error("Error uploading file:", error);
+            setDragState('idle');
+            setTerminalLogs([]);
+            setShowDuplicateToast(true); // You could create a generic error toast here instead if preferred
+            setTimeout(() => setShowDuplicateToast(false), 5000);
+        }
     };
 
     return (
