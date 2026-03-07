@@ -2,7 +2,8 @@ import React, { useContext, useState, useEffect } from 'react';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import FloatingDock from './components/common/FloatingDock';
 import { useTheme } from './contexts/ThemeContext';
-import { Sun, Moon, UserCircle } from 'lucide-react';
+import { Sun, Moon, UserCircle, X } from 'lucide-react';
+import { getCurrentUser, signOut, fetchUserAttributes } from 'aws-amplify/auth';
 
 export default function App() {
   const { isDarkMode, toggleTheme } = useTheme();
@@ -11,10 +12,45 @@ export default function App() {
   const navigate = useNavigate();
   const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
   const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [user, setUser] = useState(null);
+  const [showProfileDropdown, setShowProfileDropdown] = useState(false);
+  const [userEmail, setUserEmail] = useState('');
+  const [isFetchingProfile, setIsFetchingProfile] = useState(false);
+
+  const handleProfileClick = async () => {
+    if (showProfileDropdown) {
+      setShowProfileDropdown(false);
+      return;
+    }
+    setShowProfileDropdown(true);
+    if (!userEmail) {
+      setIsFetchingProfile(true);
+      try {
+        const attributes = await fetchUserAttributes();
+        const email = attributes.email;
+        setUserEmail(email);
+      } catch (error) {
+        console.error('Error fetching user attributes', error);
+      } finally {
+        setIsFetchingProfile(false);
+      }
+    }
+  };
 
   useEffect(() => {
-    // Read auth state on mount and route change
-    setIsLoggedIn(localStorage.getItem('isLoggedIn') === 'true');
+    async function checkAuthState() {
+      try {
+        const currentUser = await getCurrentUser();
+        console.log("SUCCESS! User is logged in:", currentUser);
+        setUser(currentUser);
+        setIsLoggedIn(true);
+      } catch (error) {
+        console.log("No user currently logged in.");
+        setUser(null);
+        setIsLoggedIn(false);
+      }
+    }
+    checkAuthState();
   }, [location.pathname]);
 
   useEffect(() => {
@@ -72,22 +108,64 @@ export default function App() {
           {!hideAuthButtons && (
             isLoggedIn ? (
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginLeft: '0.5rem', paddingLeft: '1rem', borderLeft: theme === 'dark' ? '1px solid rgba(255,255,255,0.1)' : '1px solid #e2e8f0' }}>
+                <div style={{ position: 'relative' }}>
+                  <button
+                    onClick={handleProfileClick}
+                    style={{
+                      width: '2.5rem', height: '2.5rem', borderRadius: '50%',
+                      background: theme === 'dark' ? 'rgba(255,255,255,0.05)' : '#f1f5f9',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      border: 'none', cursor: 'pointer',
+                      color: theme === 'dark' ? '#cbd5e1' : '#475569'
+                    }}
+                    title="Profile"
+                  >
+                    <UserCircle size={22} />
+                  </button>
+                  {showProfileDropdown && (
+                    <div style={{
+                      position: 'absolute',
+                      top: 'calc(100% + 0.5rem)',
+                      right: 0,
+                      width: '200px',
+                      padding: '1rem',
+                      borderRadius: '0.75rem',
+                      background: theme === 'dark' ? '#1e293b' : '#ffffff',
+                      border: theme === 'dark' ? '1px solid rgba(255,255,255,0.1)' : '1px solid #e2e8f0',
+                      boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.2)',
+                      zIndex: 100,
+                    }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
+                        <span style={{ fontSize: '0.875rem', fontWeight: 700, color: theme === 'dark' ? '#f8fafc' : '#0f172a' }}>Profile Details</span>
+                        <button onClick={() => setShowProfileDropdown(false)} style={{ color: theme === 'dark' ? '#94a3b8' : '#64748b', background: 'transparent', border: 'none', cursor: 'pointer', display: 'flex' }}>
+                          <X size={16} />
+                        </button>
+                      </div>
+                      <div style={{ fontSize: '0.875rem', color: theme === 'dark' ? '#cbd5e1' : '#475569', wordBreak: 'break-all' }}>
+                        {isFetchingProfile ? (
+                          <span>Loading...</span>
+                        ) : (
+                          userEmail || 'No email found'
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', marginLeft: '0.5rem', marginRight: '0.5rem' }}>
+                  <span style={{ fontSize: '12px', fontWeight: 600, color: theme === 'dark' ? '#94a3b8' : '#64748b' }}>
+                    {user?.signInDetails?.loginId || 'User'}
+                  </span>
+                </div>
                 <button
-                  style={{
-                    width: '2.5rem', height: '2.5rem', borderRadius: '50%',
-                    background: theme === 'dark' ? 'rgba(255,255,255,0.05)' : '#f1f5f9',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    border: 'none', cursor: 'pointer',
-                    color: theme === 'dark' ? '#cbd5e1' : '#475569'
-                  }}
-                  title="Profile"
-                >
-                  <UserCircle size={22} />
-                </button>
-                <button
-                  onClick={() => {
+                  onClick={async () => {
+                    try {
+                      await signOut();
+                    } catch (err) {
+                      console.error("SignOut block failure", err);
+                    }
                     localStorage.removeItem('isLoggedIn');
                     setIsLoggedIn(false);
+                    setUser(null);
                     navigate('/');
                   }}
                   style={{

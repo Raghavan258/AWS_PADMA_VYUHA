@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Mail, Lock, User, ArrowRight } from 'lucide-react';
 import { useTheme } from '../../contexts/ThemeContext';
+import { signUp } from 'aws-amplify/auth';
 
 export default function RegisterView() {
     const { isDarkMode } = useTheme();
@@ -10,11 +11,39 @@ export default function RegisterView() {
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [confirmPassword, setConfirmPassword] = useState('');
+    const [error, setError] = useState('');
+    const [isSubmitting, setIsSubmitting] = useState(false);
 
-    const handleRegister = (e) => {
+    const handleRegister = async (e) => {
         e.preventDefault();
-        localStorage.setItem('isLoggedIn', 'true');
-        navigate('/goal-selection');
+        setError('');
+
+        if (password !== confirmPassword) {
+            return setError('Passwords do not match');
+        }
+
+        setIsSubmitting(true);
+        try {
+            const { isSignUpComplete, nextStep } = await signUp({
+                username: email,
+                password,
+                options: {
+                    userAttributes: {
+                        name: name
+                    }
+                }
+            });
+
+            // Depending on your Cognito configuration, you might need to handle a confirmation code step here.
+            // For now, if successful, we'll auto-login or redirect.
+            localStorage.setItem('isLoggedIn', 'true');
+            navigate('/goal-selection');
+
+        } catch (err) {
+            setError(err.message || 'Registration failed. Please try again.');
+        } finally {
+            setIsSubmitting(false);
+        }
     };
 
     return (
@@ -28,6 +57,12 @@ export default function RegisterView() {
                 <p className="text-slate-500 dark:text-gray-400 mb-8 text-sm">Join Lecturai to start generating your custom video lectures.</p>
 
                 <form onSubmit={handleRegister} className="flex flex-col gap-5">
+
+                    {error && (
+                        <div className="bg-red-50 text-red-600 p-3 rounded-xl text-sm border border-red-100 dark:bg-red-500/10 dark:border-red-500/20 dark:text-red-400">
+                            {error}
+                        </div>
+                    )}
 
                     <div className="relative text-left">
                         <label className="block text-xs font-bold text-slate-600 dark:text-gray-400 uppercase tracking-widest mb-1.5 ml-1">Full Name</label>
@@ -92,11 +127,12 @@ export default function RegisterView() {
                     {/* Create Account button */}
                     <button
                         type="submit"
-                        className={`w-full relative group overflow-hidden bg-cyan-600 dark:bg-cyan-500 ${isDarkMode ? 'text-white' : 'text-slate-900'} rounded-xl py-3.5 px-4 font-bold tracking-wide transition-all duration-300 hover:shadow-[0_0_20px_rgba(34,211,238,0.4)] border border-transparent`}
+                        disabled={isSubmitting}
+                        className={`w-full relative group overflow-hidden bg-cyan-600 dark:bg-cyan-500 ${isDarkMode ? 'text-white' : 'text-slate-900'} rounded-xl py-3.5 px-4 font-bold tracking-wide transition-all duration-300 hover:shadow-[0_0_20px_rgba(34,211,238,0.4)] border border-transparent disabled:opacity-70 disabled:cursor-not-allowed`}
                     >
-                        <div className="absolute inset-0 w-full h-full bg-gradient-to-r from-cyan-500 via-purple-500 to-cyan-500 opacity-0 group-hover:opacity-100 transition-opacity duration-300" style={{ backgroundSize: '200% 100%', animation: 'gradientMove 3s linear infinite' }}></div>
+                        {!isSubmitting && <div className="absolute inset-0 w-full h-full bg-gradient-to-r from-cyan-500 via-purple-500 to-cyan-500 opacity-0 group-hover:opacity-100 transition-opacity duration-300" style={{ backgroundSize: '200% 100%', animation: 'gradientMove 3s linear infinite' }}></div>}
                         <div className="relative flex items-center justify-center gap-2 transition-colors">
-                            Create Account <ArrowRight size={18} className="group-hover:translate-x-1 transition-transform" />
+                            {isSubmitting ? 'Creating Account...' : 'Create Account'} {!isSubmitting && <ArrowRight size={18} className="group-hover:translate-x-1 transition-transform" />}
                         </div>
                     </button>
 

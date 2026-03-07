@@ -1,20 +1,62 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Mail, Lock, ArrowRight, Chrome } from 'lucide-react';
 import { useTheme } from '../../contexts/ThemeContext';
+import { signInWithRedirect, signIn, getCurrentUser } from 'aws-amplify/auth';
 
 export default function LoginView() {
     const { isDarkMode } = useTheme();
     const navigate = useNavigate();
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
+    const [error, setError] = useState('');
+    const [isSubmitting, setIsSubmitting] = useState(false);
+    const [user, setUser] = useState(null);
 
-    const handleLogin = (e) => {
+    useEffect(() => {
+        async function checkAuthState() {
+            try {
+                const currentUser = await getCurrentUser();
+                setUser(currentUser);
+                if (currentUser) {
+                    localStorage.setItem('isLoggedIn', 'true');
+                    const hasSelectedStream = localStorage.getItem('hasSelectedStream') === 'true';
+                    navigate(hasSelectedStream ? '/upload' : '/goal-selection');
+                }
+            } catch (error) {
+                setUser(null);
+            }
+        }
+        checkAuthState();
+    }, [navigate]);
+
+    const handleLogin = async (e) => {
         e.preventDefault();
-        localStorage.setItem('isLoggedIn', 'true');
-        const hasSelectedStream = localStorage.getItem('hasSelectedStream') === 'true';
-        navigate(hasSelectedStream ? '/upload' : '/goal-selection');
+        setError('');
+        setIsSubmitting(true);
+        try {
+            const { isSignedIn } = await signIn({ username: email, password });
+            if (isSignedIn) {
+                localStorage.setItem('isLoggedIn', 'true');
+                const hasSelectedStream = localStorage.getItem('hasSelectedStream') === 'true';
+                navigate(hasSelectedStream ? '/upload' : '/goal-selection');
+            }
+        } catch (err) {
+            setError(err.message || 'Login failed. Please verify your credentials.');
+        } finally {
+            setIsSubmitting(false);
+        }
     };
+
+    const handleGoogleLogin = async () => {
+        try {
+            await signInWithRedirect({ provider: 'Google' });
+        } catch (err) {
+            setError(err.message || 'Failed to initialize Google Sign-In.');
+        }
+    };
+
+
 
     return (
         <div style={{
@@ -61,6 +103,12 @@ export default function LoginView() {
 
                 <form onSubmit={handleLogin} style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
 
+                    {error && (
+                        <div style={{ backgroundColor: '#fee2e2', color: '#b91c1c', padding: '0.75rem', borderRadius: '0.5rem', fontSize: '0.875rem' }}>
+                            {error}
+                        </div>
+                    )}
+
                     {/* Email */}
                     <div style={{ textAlign: 'left' }}>
                         <label style={{ display: 'block', fontSize: '0.7rem', fontWeight: 700, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '0.375rem', marginLeft: '0.25rem' }}
@@ -103,6 +151,7 @@ export default function LoginView() {
                     {/* ── SIGN IN BUTTON — pure inline, always visible ── */}
                     <button
                         type="submit"
+                        disabled={isSubmitting}
                         style={{
                             width: '100%',
                             padding: '0.875rem 1rem',
@@ -111,7 +160,8 @@ export default function LoginView() {
                             fontSize: '1rem',
                             letterSpacing: '0.03em',
                             border: 'none',
-                            cursor: 'pointer',
+                            cursor: isSubmitting ? 'not-allowed' : 'pointer',
+                            opacity: isSubmitting ? 0.7 : 1,
                             background: 'linear-gradient(135deg, #7c3aed, #6d28d9)',
                             color: isDarkMode ? '#ffffff' : '#0f172a',
                             display: 'flex',
@@ -122,10 +172,10 @@ export default function LoginView() {
                             transition: 'opacity 0.2s, box-shadow 0.2s',
                             fontFamily: 'inherit',
                         }}
-                        onMouseEnter={e => { e.currentTarget.style.opacity = '0.9'; e.currentTarget.style.boxShadow = '0 0 25px rgba(168,85,247,0.55)'; }}
-                        onMouseLeave={e => { e.currentTarget.style.opacity = '1'; e.currentTarget.style.boxShadow = '0 4px 15px rgba(124,58,237,0.4)'; }}
+                        onMouseEnter={e => { if (!isSubmitting) { e.currentTarget.style.opacity = '0.9'; e.currentTarget.style.boxShadow = '0 0 25px rgba(168,85,247,0.55)'; } }}
+                        onMouseLeave={e => { if (!isSubmitting) { e.currentTarget.style.opacity = '1'; e.currentTarget.style.boxShadow = '0 4px 15px rgba(124,58,237,0.4)'; } }}
                     >
-                        Sign In <ArrowRight size={18} />
+                        {isSubmitting ? 'Signing In...' : 'Sign In'} <ArrowRight size={18} />
                     </button>
                 </form>
 
@@ -138,6 +188,7 @@ export default function LoginView() {
 
                 {/* Google */}
                 <button
+                    onClick={(e) => { e.preventDefault(); signInWithRedirect({ provider: 'Google' }); }}
                     style={{
                         width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center',
                         gap: '0.75rem', padding: '0.75rem 1rem', borderRadius: '0.75rem',

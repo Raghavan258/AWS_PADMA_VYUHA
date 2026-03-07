@@ -12,6 +12,26 @@ import DashboardView from './components/views/DashboardView'
 import QuizView from './components/views/QuizView'
 import CurriculumView from './components/views/CurriculumView'
 import { ThemeProvider } from './contexts/ThemeContext'
+import { Amplify } from 'aws-amplify';
+import '@aws-amplify/ui-react/styles.css';
+
+Amplify.configure({
+  Auth: {
+    Cognito: {
+      userPoolId: 'us-east-1_ansP4RU35',
+      userPoolClientId: '1sbi69n7ofe8ap7opbs6u224t4',
+      loginWith: {
+        oauth: {
+          domain: 'us-east-1ansp4ru35.auth.us-east-1.amazoncognito.com',
+          scopes: ['email', 'openid', 'phone'],
+          redirectSignIn: ['http://localhost:5173/', 'https://yourproductiondomain.com/'],
+          redirectSignOut: ['http://localhost:5173/', 'https://yourproductiondomain.com/'],
+          responseType: 'code',
+        }
+      }
+    }
+  }
+});
 
 createRoot(document.getElementById('root')).render(
   <StrictMode>
