@@ -3,7 +3,7 @@ import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import FloatingDock from './components/common/FloatingDock';
 import { useTheme } from './contexts/ThemeContext';
 import { Sun, Moon, UserCircle, X } from 'lucide-react';
-import { getCurrentUser, signOut, fetchUserAttributes } from 'aws-amplify/auth';
+import { getCurrentUser, signOut, fetchUserAttributes, fetchAuthSession } from 'aws-amplify/auth';
 
 export default function App() {
   const { isDarkMode, toggleTheme } = useTheme();
@@ -17,6 +17,19 @@ export default function App() {
   const [userEmail, setUserEmail] = useState('');
   const [isFetchingProfile, setIsFetchingProfile] = useState(false);
 
+  async function getUserInfo() {
+    try {
+      const session = await fetchAuthSession();
+      // Read the email directly from the raw ID token payload
+      const userEmail = session.tokens?.idToken?.payload?.email;
+
+      console.log("Token payload:", session.tokens?.idToken?.payload);
+      return userEmail;
+    } catch (error) {
+      console.error("Error fetching session token:", error);
+    }
+  }
+
   const handleProfileClick = async () => {
     if (showProfileDropdown) {
       setShowProfileDropdown(false);
@@ -26,11 +39,12 @@ export default function App() {
     if (!userEmail) {
       setIsFetchingProfile(true);
       try {
-        const attributes = await fetchUserAttributes();
-        const email = attributes.email;
-        setUserEmail(email);
+        const email = await getUserInfo();
+        if (email) {
+          setUserEmail(email);
+        }
       } catch (error) {
-        console.error('Error fetching user attributes', error);
+        console.error('Error setting user email', error);
       } finally {
         setIsFetchingProfile(false);
       }

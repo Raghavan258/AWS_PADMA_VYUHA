@@ -1,15 +1,21 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { UploadCloud, FileText, CheckCircle2, AlertCircle, PlaySquare, Clock, BookOpen, ChevronRight, PlayCircle, Zap, Layers } from 'lucide-react';
+import { uploadData, list } from 'aws-amplify/storage';
+import { fetchAuthSession } from 'aws-amplify/auth';
+import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
+import { DynamoDBDocumentClient, PutCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
 import MagneticButton from '../common/MagneticButton';
 import ProcessingModal from './ProcessingModal';
+import { useAnonymousUser } from '../../hooks/useAnonymousUser';
 
 export default function UploadView() {
+    const anonymousUserId = useAnonymousUser();
     const navigate = useNavigate();
     const [dragState, setDragState] = useState('idle'); // idle, dragover, processing
     const [showDuplicateToast, setShowDuplicateToast] = useState(false);
-    const [terminalLogs, setTerminalLogs] = useState([]);
     const [isProcessingModalOpen, setIsProcessingModalOpen] = useState(false);
+    const [currentCourseId, setCurrentCourseId] = useState(null);
     const [primaryGoal, setPrimaryGoal] = useState('your');
     const [courses, setCourses] = useState([]);
     const [isLoading, setIsLoading] = useState(true);
@@ -33,28 +39,33 @@ export default function UploadView() {
         }
     }, [navigate]);
 
+    const [textbooks, setTextbooks] = useState([]);
+
     // Data Fetching
     useEffect(() => {
-        fetch('YOUR_AWS_API_GATEWAY_URL')
-            .then(res => res.json())
-            .then(data => {
-                setCourses(data || []);
+        async function fetchTextbooks() {
+            try {
+                // Assuming files were uploaded with a 'pdfs/' prefix
+                const result = await list({
+                    prefix: 'pdfs/',
+                    options: {
+                        accessLevel: 'private'
+                    }
+                });
+
+                // Update state with the fetched items
+                setTextbooks(result.items || []);
+                console.log("Fetched textbooks from S3:", result.items);
                 setIsLoading(false);
-            })
-            .catch(err => {
-                console.error('Failed to fetch courses:', err);
+            } catch (error) {
+                console.error("Error fetching from S3:", error);
                 setIsLoading(false);
-            });
+            }
+        }
+
+        fetchTextbooks();
     }, []);
 
-    useEffect(() => {
-        fetch('YOUR_STATS_API_URL')
-            .then(res => res.json())
-            .then(data => {
-                setUserStats(data || { videosGenerated: 0, lecturesCompleted: 0, videosWeekly: 0, lecturesWeekly: 0 });
-            })
-            .catch(err => console.error('Failed to fetch stats:', err));
-    }, []);
 
     // Scroll reveal logic
     useEffect(() => {
@@ -76,55 +87,91 @@ export default function UploadView() {
         if (dragState !== 'processing') setDragState('idle');
     };
 
+    const handleFileUpload = async (file) => {
+        setDragState('processing');
+        try {
+            // Generate a unique filename
+            const uniqueFileName = `pdfs/${Date.now()}-${file.name}`;
+
+            // Start the upload
+            const uploadTask = uploadData({
+                key: uniqueFileName,
+                data: file,
+                options: {
+                    accessLevel: 'private', // CHANGED FROM GUEST
+                    contentType: file.type // Ensure S3 knows it is a PDF
+                }
+            });
+
+            // Await the final result
+            const result = await uploadTask.result;
+            console.log('Successfully uploaded to S3:', result);
+
+            // --- DYNAMODB INTEGRATION ---
+            try {
+                // Get credentials and identityId from Amplify session
+                const session = await fetchAuthSession();
+                const identityId = session.identityId;
+                const credentials = session.credentials;
+
+                if (!credentials) {
+                    throw new Error("No AWS credentials available from Auth session");
+                }
+
+                // Initialize DynamoDB Client with session credentials
+                const ddbClient = new DynamoDBClient({
+                    region: 'us-east-1',
+                    credentials: {
+                        accessKeyId: credentials.accessKeyId,
+                        secretAccessKey: credentials.secretAccessKey,
+                        sessionToken: credentials.sessionToken
+                    }
+                });
+
+                const docClient = DynamoDBDocumentClient.from(ddbClient);
+
+                // Create a unique courseId
+                const courseId = `course_${Date.now()}`;
+                setCurrentCourseId(courseId);
+
+                // Write to LecturAi-Courses table
+                const putCommand = new PutCommand({
+                    TableName: 'LecturAi-Courses',
+                    Item: {
+                        courseId: courseId,
+                        userId: anonymousUserId || identityId || 'unknown-user',
+                        fileName: file.name,
+                        s3Key: uniqueFileName,
+                        videoStatus: 'Pending',
+                        createdAt: new Date().toISOString()
+                    }
+                });
+
+                await docClient.send(putCommand);
+                console.log('Successfully saved upload record to DynamoDB:', courseId);
+            } catch (dbError) {
+                console.error("Error saving to DynamoDB:", dbError);
+            }
+            // --- END DYNAMODB INTEGRATION ---
+
+            setDragState('idle');
+            setIsProcessingModalOpen(true);
+
+        } catch (error) {
+            console.error("Error uploading file:", error);
+            setDragState('idle');
+            setShowDuplicateToast(true); // You could create a generic error toast here instead if preferred
+            setTimeout(() => setShowDuplicateToast(false), 5000);
+        }
+    };
+
     const handleDrop = async (e) => {
         e.preventDefault();
         const files = e.dataTransfer?.files || e.target?.files;
         if (!files || files.length === 0) return;
 
         const file = files[0];
-        setDragState('processing');
-        setTerminalLogs([]); // Reset logs
-
-        const simulateTerminalSequence = async () => {
-            const logs = [
-                "> Scanning document structure...",
-                "> Detected 12 chapters, 847 pages",
-                "> Initializing AI core..."
-            ];
-
-            for (let i = 0; i < logs.length; i++) {
-                await new Promise(r => setTimeout(r, 800));
-                setTerminalLogs(prev => [...prev, logs[i]]);
-            }
-        };
-
-        simulateTerminalSequence();
-
-        try {
-            // Prepare file for upload
-            const formData = new FormData();
-            formData.append('file', file);
-
-            const response = await fetch('https://0la9c5d8ve.execute-api.us-east-1.amazonaws.com/dev/upload', {
-                method: 'POST',
-                body: formData,
-            });
-
-            if (!response.ok) {
-                throw new Error('Upload failed');
-            }
-
-            setDragState('idle');
-            setTerminalLogs([]);
-            setIsProcessingModalOpen(true);
-
-        } catch (error) {
-            console.error("Error uploading file:", error);
-            setDragState('idle');
-            setTerminalLogs([]);
-            setShowDuplicateToast(true); // You could create a generic error toast here instead if preferred
-            setTimeout(() => setShowDuplicateToast(false), 5000);
-        }
+        handleFileUpload(file);
     };
 
     return (
@@ -147,8 +194,54 @@ export default function UploadView() {
 
             <ProcessingModal
                 isOpen={isProcessingModalOpen}
-                onComplete={() => {
+                onComplete={async () => {
                     setIsProcessingModalOpen(false);
+
+                    if (currentCourseId) {
+                        try {
+                            const session = await fetchAuthSession();
+                            const credentials = session.credentials;
+
+                            if (credentials) {
+                                const ddbClient = new DynamoDBClient({
+                                    region: 'us-east-1',
+                                    credentials: {
+                                        accessKeyId: credentials.accessKeyId,
+                                        secretAccessKey: credentials.secretAccessKey,
+                                        sessionToken: credentials.sessionToken
+                                    }
+                                });
+                                const docClient = DynamoDBDocumentClient.from(ddbClient);
+
+                                const updateCommand = new UpdateCommand({
+                                    TableName: 'LecturAi-Courses',
+                                    Key: { courseId: currentCourseId },
+                                    UpdateExpression: "SET curriculum = :c, videoStatus = :s",
+                                    ExpressionAttributeValues: {
+                                        ":c": [
+                                            {
+                                                lessonTitle: "Foundation & Overview",
+                                                duration: "05:00",
+                                                concepts: ["Introduction", "Core Frameworks"]
+                                            },
+                                            {
+                                                lessonTitle: "Deep Dive into Mechanics",
+                                                duration: "10:30",
+                                                concepts: ["Advanced Theory", "Practical Examples"]
+                                            }
+                                        ],
+                                        ":s": "Completed"
+                                    }
+                                });
+
+                                await docClient.send(updateCommand);
+                                console.log("Updated DynamoDB with curriculum data");
+                            }
+                        } catch (err) {
+                            console.error("Failed to update curriculum in DynamoDB:", err);
+                        }
+                    }
+
                     navigate('/dashboard');
                 }}
             />
@@ -182,16 +275,8 @@ export default function UploadView() {
                         {dragState === 'processing' ? (
                             <div className="flex flex-col items-center justify-center h-full">
                                 <Zap size={48} className="text-cyan mb-6 shatter-icon pulse-slow" />
-                                <div className="terminal-container w-full max-w-sm text-left">
-                                    {terminalLogs.map((log, i) => (
-                                        <div key={i} className="terminal-line typing-effect text-cyan-400 font-mono text-sm mb-2 drop-shadow-[0_0_5px_rgba(34,211,238,0.5)]">
-                                            {log}
-                                        </div>
-                                    ))}
-                                    {/* Blinking cursor */}
-                                    {terminalLogs.length < 3 && (
-                                        <div className="w-2 h-4 bg-cyan-400 terminal-cursor inline-block animate-pulse ml-1"></div>
-                                    )}
+                                <div className="text-cyan-400 font-medium text-lg drop-shadow-[0_0_5px_rgba(34,211,238,0.5)]">
+                                    Uploading...
                                 </div>
                             </div>
                         ) : (
@@ -272,7 +357,7 @@ export default function UploadView() {
                             <h3 className="empty-text">Loading data core...</h3>
                         </div>
                     </div>
-                ) : courses.length === 0 ? (
+                ) : textbooks.length === 0 ? (
                     <div className="empty-state-container">
                         <div className="empty-state-content glass-panel">
                             <Layers size={64} className="empty-icon pulse-slow" color="#4b5563" />
@@ -282,23 +367,23 @@ export default function UploadView() {
                     </div>
                 ) : (
                     <div className="library-grid">
-                        {courses.map((course, index) => {
-                            const color = course.color || ['#f472b6', '#4ade80', '#22d3ee', '#fbbf24'][index % 4];
+                        {textbooks.map((textbook, index) => {
+                            const color = ['#f472b6', '#4ade80', '#22d3ee', '#fbbf24'][index % 4];
                             const defaultIcon = [
                                 <FileText size={24} color={color} />,
                                 <CheckCircle2 size={24} color={color} />,
                                 <BookOpen size={24} color={color} />,
                                 <Clock size={24} color={color} />
                             ][index % 4];
-                            const icon = course.icon || defaultIcon;
-                            const progress = course.progress || 0;
-                            const chapterCount = course.chapterCount || 0;
+                            const icon = defaultIcon;
+                            const progress = 0;
+                            const chapterCount = 0;
 
                             return (
                                 <div
-                                    key={course.id || index}
+                                    key={textbook.key || index}
                                     className="library-card glass-panel group relative"
-                                    onClick={() => navigate(`/curriculum/${course.id || index}`)}
+                                    onClick={() => navigate(`/curriculum/${encodeURIComponent(textbook.key)}`)}
                                 >
                                     <div className="card-overlay">
                                         <BookOpen size={48} color="white" className="overlay-play" />
@@ -309,7 +394,7 @@ export default function UploadView() {
                                         <div className="card-icon-wrapper mb-4" style={{ backgroundColor: `${color}15`, border: `1px solid ${color}30` }}>
                                             {icon}
                                         </div>
-                                        <h3 className="text-slate-900 dark:text-white font-bold text-lg leading-tight line-clamp-2 transition-colors duration-500">{course.title}</h3>
+                                        <h3 className="text-slate-900 dark:text-white font-bold text-lg leading-tight line-clamp-2 transition-colors duration-500">{textbook.key.split('/').pop()}</h3>
                                         <p className="text-gray-500 text-xs mt-1 font-semibold tracking-wide mb-6 flex-1">
                                             {chapterCount} Chapters
                                         </p>

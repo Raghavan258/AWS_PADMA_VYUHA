@@ -20,6 +20,7 @@ Amplify.configure({
     Cognito: {
       userPoolId: 'us-east-1_ansP4RU35',
       userPoolClientId: '1sbi69n7ofe8ap7opbs6u224t4',
+      identityPoolId: 'us-east-1:7d52c369-24f7-4a93-9665-c8c7334d1bc2',
       loginWith: {
         oauth: {
           domain: 'us-east-1ansp4ru35.auth.us-east-1.amazoncognito.com',
@@ -29,6 +30,12 @@ Amplify.configure({
           responseType: 'code',
         }
       }
+    }
+  },
+  Storage: {
+    S3: {
+      bucket: 'lecturai-data-padmavyuha',
+      region: 'us-east-1',
     }
   }
 });

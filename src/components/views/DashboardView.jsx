@@ -6,28 +6,33 @@ import {
 } from 'lucide-react';
 import { mockChapters, mockTakeaways } from '../../lib/mockData';
 import { useTheme } from '../../contexts/ThemeContext';
+import { useAnonymousUser } from '../../hooks/useAnonymousUser';
 
 export default function DashboardView() {
     const navigate = useNavigate();
     const location = useLocation();
     const { isDarkMode } = useTheme();
     const dark = isDarkMode;
+    const anonymousUserId = useAnonymousUser();
 
     const [courseData, setCourseData] = useState(null);
     const [isLoading, setIsLoading] = useState(true);
 
     useEffect(() => {
-        fetch('YOUR_COURSE_API_URL')
+        if (!anonymousUserId) return;
+
+        fetch(`YOUR_API_GATEWAY_COURSES_ENDPOINT?userId=${anonymousUserId}`)
             .then(res => res.json())
             .then(data => {
-                setCourseData(data);
+                // Assuming data returns { courses: [...] } 
+                setCourseData(data.courses || []);
                 setIsLoading(false);
             })
             .catch(err => {
-                console.error('Failed to fetch course data:', err);
+                console.error('Failed to fetch filtered course data:', err);
                 setIsLoading(false);
             });
-    }, []);
+    }, [anonymousUserId]);
 
     const videoData = location.state || {};
 
