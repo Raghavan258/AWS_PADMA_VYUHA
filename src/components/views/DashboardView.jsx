@@ -7,6 +7,7 @@ import {
 import { mockChapters, mockTakeaways } from '../../lib/mockData';
 import { useTheme } from '../../contexts/ThemeContext';
 import { useAnonymousUser } from '../../hooks/useAnonymousUser';
+import { getCurrentUser } from 'aws-amplify/auth';
 
 export default function DashboardView() {
     const navigate = useNavigate();
@@ -17,15 +18,22 @@ export default function DashboardView() {
 
     const [courseData, setCourseData] = useState(null);
     const [isLoading, setIsLoading] = useState(true);
+    const [realUserId, setRealUserId] = useState(null);
+
+    // Get the real logged-in user!
+    useEffect(() => {
+        getCurrentUser()
+            .then(user => setRealUserId(user.userId))
+            .catch(() => setRealUserId(anonymousUserId)); // Fallback if not logged in
+    }, [anonymousUserId]);
 
     useEffect(() => {
-        if (!anonymousUserId) return;
+        if (!realUserId) return; // Wait until we know who is logged in
 
         const API_URL = 'https://0la9c5d8ve.execute-api.us-east-1.amazonaws.com/getCourses';
 
-        // Create a dedicated fetch function
         const fetchCourses = () => {
-            fetch(`${API_URL}?userId=${anonymousUserId}`)
+            fetch(`${API_URL}?userId=${realUserId}`) // Fetch using the REAL ID!
                 .then(res => res.json())
                 .then(data => {
                     setCourseData(data.courses || data || []);
@@ -37,15 +45,10 @@ export default function DashboardView() {
                 });
         };
 
-        // 1. Fetch immediately on load
         fetchCourses();
-
-        // 2. Poll every 10 seconds to check for video completion
         const intervalId = setInterval(fetchCourses, 10000);
-
-        // 3. Cleanup interval on unmount
         return () => clearInterval(intervalId);
-    }, [anonymousUserId]);
+    }, [realUserId]); // Depend on realUserId now
 
     const videoData = location.state || {};
 
