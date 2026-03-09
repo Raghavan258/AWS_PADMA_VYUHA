@@ -21,9 +21,8 @@ export default function DashboardView() {
     useEffect(() => {
         if (!anonymousUserId) return;
 
-        // UPDATED: Pointing directly to your API Gateway URL
-        // Change '/prod/getCourses' if your stage or resource name is different in AWS
-        const API_URL = 'https://0la9c5d8ve.execute-api.us-east-1.amazonaws.com/prod/getCourses';
+        // FIXED: Removed '/prod' because your AWS API Gateway uses the $default stage
+        const API_URL = 'https://0la9c5d8ve.execute-api.us-east-1.amazonaws.com/getCourses';
 
         fetch(`${API_URL}?userId=${anonymousUserId}`)
             .then(res => res.json())
