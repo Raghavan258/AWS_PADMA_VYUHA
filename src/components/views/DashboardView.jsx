@@ -24,6 +24,14 @@ export default function DashboardView() {
     const [isDrawerOpen, setIsDrawerOpen] = useState(false);
     const [activeTab, setActiveTab] = useState('curriculum');
     const [chatInput, setChatInput] = useState('');
+    const [isQuizModalOpen, setIsQuizModalOpen] = useState(false);
+    const [isGeneratingQuiz, setIsGeneratingQuiz] = useState(false);
+    const [quizData, setQuizData] = useState([]);
+    const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
+    const [score, setScore] = useState(0);
+    const [showQuizResults, setShowQuizResults] = useState(false);
+    const [quizError, setQuizError] = useState(null);
+    const [selectedOption, setSelectedOption] = useState(null);
     const [chatMessages, setChatMessages] = useState([
         { role: 'ai', content: "Hi! I'm your AI companion. Do you have any questions about this lecture?" }
     ]);
@@ -95,39 +103,84 @@ export default function DashboardView() {
         }
     }, [courses]);
 
-    const handleSendMessage = (e) => {
+    const handleSendMessage = async (e) => {
         e.preventDefault();
         if (!chatInput.trim()) return;
-        setChatMessages(prev => [...prev, { role: 'user', content: chatInput }]);
+        const userMsg = chatInput;
+        setChatMessages(prev => [...prev, { role: 'user', content: userMsg }]);
         setChatInput('');
-        setTimeout(() => {
-            setChatMessages(prev => [...prev, {
-                role: 'ai',
-                content: 'Great question! Based on this lecture, the key concepts covered include the main topics from your uploaded document. Feel free to ask more specific questions!'
-            }]);
-        }, 1000);
+
+        try {
+            const res = await fetch('https://0la9c5d8ve.execute-api.us-east-1.amazonaws.com/askAI', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    question: userMsg,
+                    curriculum: curriculum,
+                    fileName: selectedCourse?.fileName || 'this course'
+                })
+            });
+            const data = await res.json();
+            if (data.answer) {
+                setChatMessages(prev => [...prev, { role: 'ai', content: data.answer }]);
+            } else {
+                throw new Error("Invalid response");
+            }
+        } catch (err) {
+            console.error('Ask AI error:', err);
+            setChatMessages(prev => [...prev, { role: 'ai', content: 'Oops! I am having trouble connecting right now. Please try again later.' }]);
+        }
     };
 
-    // ── Theme tokens ──────────────────────────────────────────
-    const panel = dark ? '#0f1623' : '#ffffff';
-    const panelBorder = dark ? 'rgba(255,255,255,0.08)' : '#e2e8f0';
-    const panelSub = dark ? '#0d1420' : '#fafafa';
-    const textPri = dark ? '#f1f5f9' : '#0f172a';
-    const textSec = dark ? 'rgba(255,255,255,0.45)' : '#94a3b8';
-    const textMid = dark ? 'rgba(255,255,255,0.7)' : '#374151';
-    const rowHover = dark ? 'rgba(255,255,255,0.04)' : '#f8fafc';
-    const inputBg = dark ? 'rgba(255,255,255,0.06)' : 'white';
-    const inputBorder = dark ? 'rgba(255,255,255,0.1)' : '#e2e8f0';
-    const inputColor = dark ? '#f1f5f9' : '#1e293b';
-    const msgUserBg = dark ? 'rgba(255,255,255,0.08)' : '#f1f5f9';
-    const msgAiBg = dark ? 'rgba(168,85,247,0.12)' : 'rgba(168,85,247,0.08)';
+    const handleGenerateQuiz = async () => {
+        setIsQuizModalOpen(true);
+        setIsGeneratingQuiz(true);
+        setQuizError(null);
+        setQuizData([]);
+        setCurrentQuestionIndex(0);
+        setScore(0);
+        setShowQuizResults(false);
+        setSelectedOption(null);
 
-    // ── Derived values from selected course ───────────────────
-    const videoStatus = selectedCourse?.videoStatus || '';
-    const videoUrl = selectedCourse?.videoUrl || null;
-    const isVideoReady = videoStatus.includes('Video Ready') || videoStatus === 'Completed';
-    const isError = videoStatus.startsWith('Error');
-    const isProcessing = !isVideoReady && !isError;
+        try {
+            const res = await fetch('https://0la9c5d8ve.execute-api.us-east-1.amazonaws.com/generateQuiz', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    curriculum: curriculum,
+                    fileName: selectedCourse?.fileName || 'this course'
+                })
+            });
+            const data = await res.json();
+            if (data.questions && Array.isArray(data.questions)) {
+                setQuizData(data.questions);
+            } else {
+                throw new Error("Invalid quiz data format from server");
+            }
+        } catch (err) {
+            console.error("Generate quiz error:", err);
+            setQuizError("Failed to generate quiz. Please try again.");
+        } finally {
+            setIsGeneratingQuiz(false);
+        }
+    };
+
+    const handleQuizOptionSelect = (option) => {
+        if (selectedOption !== null) return; // prevent multiple clicks
+        setSelectedOption(option);
+
+        setTimeout(() => {
+            if (option === quizData[currentQuestionIndex].answer) {
+                setScore(s => s + 1);
+            }
+            if (currentQuestionIndex < quizData.length - 1) {
+                setCurrentQuestionIndex(i => i + 1);
+                setSelectedOption(null);
+            } else {
+                setShowQuizResults(true);
+            }
+        }, 1500); // Wait to show right/wrong feedback
+    };
 
     // Parse curriculum from DynamoDB format
     const curriculum = selectedCourse?.curriculum?.map(item => {
@@ -283,7 +336,7 @@ export default function DashboardView() {
 
                         {/* Action Bar */}
                         <div style={{ padding: '14px 16px', borderTop: `1px solid ${panelBorder}`, display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: '12px', background: panelSub }}>
-                            <button onClick={() => navigate('/quiz')} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '9px 18px', borderRadius: '9999px', border: '1px solid rgba(168,85,247,0.4)', background: 'rgba(168,85,247,0.08)', color: '#a855f7', fontWeight: 600, fontSize: '14px', cursor: 'pointer' }}>
+                            <button onClick={handleGenerateQuiz} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '9px 18px', borderRadius: '9999px', border: '1px solid rgba(168,85,247,0.4)', background: 'rgba(168,85,247,0.08)', color: '#a855f7', fontWeight: 600, fontSize: '14px', cursor: 'pointer' }}>
                                 <BrainCircuit size={17} /> Generate Quiz
                             </button>
                             <div style={{ display: 'flex', gap: '10px' }}>
@@ -477,6 +530,96 @@ export default function DashboardView() {
             <button onClick={() => setIsDrawerOpen(true)} className="md:hidden" style={{ position: 'fixed', bottom: '6rem', right: '1.5rem', zIndex: 30, width: '56px', height: '56px', borderRadius: '50%', background: '#22d3ee', color: 'white', border: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 5px 20px rgba(34,211,238,0.4)', cursor: 'pointer' }}>
                 <Menu size={24} />
             </button>
+
+            {/* Quiz Modal */}
+            {isQuizModalOpen && (
+                <div style={{ position: 'fixed', inset: 0, zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(5px)' }}>
+                    <div style={{ background: panel, width: '90%', maxWidth: '500px', borderRadius: '16px', border: `1px solid ${panelBorder}`, display: 'flex', flexDirection: 'column', overflow: 'hidden', boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.5)' }}>
+                        <div style={{ padding: '16px 20px', borderBottom: `1px solid ${panelBorder}`, background: panelSub, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                <BrainCircuit size={18} style={{ color: '#a855f7' }} />
+                                <h3 style={{ fontWeight: 700, color: textPri, fontSize: '16px' }}>AI Quiz</h3>
+                            </div>
+                            <button onClick={() => setIsQuizModalOpen(false)} style={{ background: 'none', border: 'none', color: textSec, cursor: 'pointer', padding: '4px' }}>
+                                <X size={20} />
+                            </button>
+                        </div>
+
+                        <div style={{ padding: '24px', minHeight: '300px', display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+                            {isGeneratingQuiz ? (
+                                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '16px', textAlign: 'center' }}>
+                                    <div className="w-12 h-12 border-4 border-[#a855f7] border-t-transparent rounded-full animate-spin" />
+                                    <div style={{ color: textPri, fontWeight: 600 }}>Claude is analyzing your curriculum...</div>
+                                    <div style={{ color: textSec, fontSize: '13px' }}>Crafting tricky multiple choice questions!</div>
+                                </div>
+                            ) : quizError ? (
+                                <div style={{ textAlign: 'center', color: '#ef4444' }}>
+                                    <p style={{ fontWeight: 600 }}>{quizError}</p>
+                                    <button onClick={handleGenerateQuiz} style={{ marginTop: '16px', padding: '8px 16px', borderRadius: '8px', border: '1px solid #ef4444', background: 'rgba(239,68,68,0.1)', color: '#ef4444', cursor: 'pointer' }}>Try Again</button>
+                                </div>
+                            ) : showQuizResults ? (
+                                <div style={{ textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '12px' }}>
+                                    <div style={{ width: '80px', height: '80px', borderRadius: '50%', background: 'rgba(168,85,247,0.1)', border: '2px solid #a855f7', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '32px', fontWeight: 800, color: '#a855f7', marginBottom: '8px' }}>
+                                        {score}/{quizData.length}
+                                    </div>
+                                    <h2 style={{ fontSize: '20px', fontWeight: 700, color: textPri }}>Quiz Completed!</h2>
+                                    <p style={{ color: textSec, fontSize: '14px' }}>Great job reviewing your course material.</p>
+                                    <button onClick={() => setIsQuizModalOpen(false)} style={{ marginTop: '20px', padding: '10px 24px', borderRadius: '9999px', background: '#a855f7', color: 'white', fontWeight: 600, border: 'none', cursor: 'pointer', width: '100%' }}>Return to Dashboard</button>
+                                </div>
+                            ) : quizData.length > 0 ? (
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: textSec, fontWeight: 600 }}>
+                                        <span>Question {currentQuestionIndex + 1} of {quizData.length}</span>
+                                        <span>Score: {score}</span>
+                                    </div>
+                                    <p style={{ fontSize: '16px', color: textPri, fontWeight: 500, lineHeight: 1.5 }}>
+                                        {quizData[currentQuestionIndex].question}
+                                    </p>
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                                        {quizData[currentQuestionIndex].options.map((opt, idx) => {
+                                            const isSelected = selectedOption === opt;
+                                            const isCorrect = opt === quizData[currentQuestionIndex].answer;
+                                            const showCorrect = selectedOption !== null && isCorrect;
+                                            const showWrong = isSelected && !isCorrect;
+
+                                            let bg = dark ? 'rgba(255,255,255,0.04)' : '#f8fafc';
+                                            let brColor = panelBorder;
+
+                                            if (showCorrect) {
+                                                bg = 'rgba(34,197,94,0.1)';
+                                                brColor = '#22c55e';
+                                            } else if (showWrong) {
+                                                bg = 'rgba(239,68,68,0.1)';
+                                                brColor = '#ef4444';
+                                            } else if (isSelected) {
+                                                bg = 'rgba(168,85,247,0.1)';
+                                                brColor = '#a855f7';
+                                            }
+
+                                            return (
+                                                <button
+                                                    key={idx}
+                                                    onClick={() => handleQuizOptionSelect(opt)}
+                                                    disabled={selectedOption !== null}
+                                                    style={{
+                                                        padding: '12px 16px', borderRadius: '10px',
+                                                        border: `1px solid ${brColor}`, background: bg,
+                                                        color: textPri, fontSize: '14px', textAlign: 'left',
+                                                        cursor: selectedOption !== null ? 'default' : 'pointer',
+                                                        transition: 'all 0.2s'
+                                                    }}
+                                                >
+                                                    {opt}
+                                                </button>
+                                            )
+                                        })}
+                                    </div>
+                                </div>
+                            ) : null}
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }
