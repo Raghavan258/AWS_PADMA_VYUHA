@@ -17,7 +17,7 @@ import '@aws-amplify/ui-react/styles.css';
 
 // 1. Define your exact URLs (Keep the trailing slash!)
 const LOCAL_URL = 'http://localhost:5173/';
-const AMPLIFY_URL = 'https://main.d2nk83axc3a87z.amplifyapp.com'; // <--- PASTE YOUR REAL LINK HERE
+const AMPLIFY_URL = 'https://main.d2nk83axc3a87z.amplifyapp.com/'; // <--- PASTE YOUR REAL LINK HERE
 
 // 2. Check where the app is currently running
 const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
