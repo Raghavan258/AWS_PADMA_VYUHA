@@ -33,7 +33,10 @@ export default function DashboardView() {
     // ── Get logged-in user ────────────────────────────────────
     useEffect(() => {
         getCurrentUser()
-            .then(user => setRealUserId(user.userId))
+            .then(user => {
+                const id = user.username || user.userId;
+                setRealUserId(id);
+            })
             .catch(() => setRealUserId(anonymousUserId));
     }, [anonymousUserId]);
 

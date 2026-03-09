@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { UploadCloud, FileText, CheckCircle2, AlertCircle, PlaySquare, Clock, BookOpen, ChevronRight, PlayCircle, Zap, Layers } from 'lucide-react';
 import { uploadData, list } from 'aws-amplify/storage';
-import { fetchAuthSession } from 'aws-amplify/auth';
+import { fetchAuthSession, getCurrentUser } from 'aws-amplify/auth';
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { DynamoDBDocumentClient, PutCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
 import MagneticButton from '../common/MagneticButton';
@@ -114,6 +114,14 @@ export default function UploadView() {
                 const identityId = session.identityId;
                 const credentials = session.credentials;
 
+                let authUser = null;
+                try {
+                    authUser = await getCurrentUser();
+                } catch (e) {
+                    console.log("No authenticated user found for upload.");
+                }
+                const resolvedUserId = authUser ? (authUser.username || authUser.userId) : null;
+
                 if (!credentials) {
                     throw new Error("No AWS credentials available from Auth session");
                 }
@@ -139,7 +147,7 @@ export default function UploadView() {
                     TableName: 'LecturAi-Courses',
                     Item: {
                         courseId: courseId,
-                        userId: anonymousUserId || identityId || 'unknown-user',
+                        userId: resolvedUserId || anonymousUserId || identityId || 'unknown-user',
                         fileName: file.name,
                         s3Key: uniqueFileName,
                         videoStatus: 'Pending',
