@@ -52,6 +52,8 @@ export default function DashboardView() {
     const videoRef = useRef(null);
     const pollRef = useRef(null);
 
+    const API_BASE = 'https://0la9c5d8ve.execute-api.us-east-1.amazonaws.com';
+
     // ── Get logged-in user ────────────────────────────────────
     useEffect(() => {
         getCurrentUser()
@@ -62,15 +64,23 @@ export default function DashboardView() {
             .catch(() => setRealUserId(anonymousUserId));
     }, [anonymousUserId]);
 
-    // ── Fetch courses — smart polling, stops when all ready ───
+    // ── Fetch with 503 retry ──────────────────────────────────
+    const fetchWithRetry = async (url, options = {}) => {
+        const res = await fetch(url, options);
+        if (res.status === 503) {
+            await new Promise(r => setTimeout(r, 5000));
+            return fetch(url, options);
+        }
+        return res;
+    };
+
+    // ── Fetch courses — polls every 60s, stops when all ready ─
     useEffect(() => {
         if (!realUserId) return;
 
-        const API_URL = 'https://0la9c5d8ve.execute-api.us-east-1.amazonaws.com/getCourses';
-
         const fetchCourses = async () => {
             try {
-                const res = await fetch(`${API_URL}?userId=${realUserId}`);
+                const res = await fetchWithRetry(`${API_BASE}/getCourses?userId=${realUserId}`);
                 if (!res.ok) throw new Error(`HTTP ${res.status}`);
                 const data = await res.json();
                 const list = data.courses || [];
@@ -84,6 +94,7 @@ export default function DashboardView() {
                     setSelectedCourse(sorted[0]);
                 }
 
+                // Stop polling once all courses are in a terminal state
                 const allDone = list.every(c =>
                     c.videoStatus?.includes('Video Ready') ||
                     c.videoStatus === 'Completed' ||
@@ -100,7 +111,8 @@ export default function DashboardView() {
         };
 
         fetchCourses();
-        pollRef.current = setInterval(fetchCourses, 15000);
+        // Poll every 60s to avoid exhausting 10-slot Lambda concurrency limit
+        pollRef.current = setInterval(fetchCourses, 60000);
         return () => {
             if (pollRef.current) clearInterval(pollRef.current);
         };
@@ -122,7 +134,7 @@ export default function DashboardView() {
         setChatInput('');
 
         try {
-            const res = await fetch('https://0la9c5d8ve.execute-api.us-east-1.amazonaws.com/askAI', {
+            const res = await fetchWithRetry(`${API_BASE}/askAI`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -154,7 +166,7 @@ export default function DashboardView() {
         setSelectedOption(null);
 
         try {
-            const res = await fetch('https://0la9c5d8ve.execute-api.us-east-1.amazonaws.com/generateQuiz', {
+            const res = await fetchWithRetry(`${API_BASE}/generateQuiz`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
