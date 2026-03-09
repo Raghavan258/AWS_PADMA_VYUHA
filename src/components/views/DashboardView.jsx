@@ -1,10 +1,9 @@
-import React, { useState, useEffect, useContext } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import {
     Play, Pause, Volume2, Maximize, BrainCircuit, Download, Share2,
-    Zap, Send, Sparkles, Headphones, Activity, Menu, X, Subtitles
+    Zap, Send, Sparkles, Headphones, Activity, Menu, X, ChevronRight
 } from 'lucide-react';
-import { mockChapters, mockTakeaways } from '../../lib/mockData';
 import { useTheme } from '../../contexts/ThemeContext';
 import { useAnonymousUser } from '../../hooks/useAnonymousUser';
 import { getCurrentUser } from 'aws-amplify/auth';
@@ -16,86 +15,82 @@ export default function DashboardView() {
     const dark = isDarkMode;
     const anonymousUserId = useAnonymousUser();
 
-    const [courseData, setCourseData] = useState(null);
+    // ── State ─────────────────────────────────────────────────
+    const [courses, setCourses] = useState([]);         // Full list from API
+    const [selectedCourse, setSelectedCourse] = useState(null); // Currently viewed course
     const [isLoading, setIsLoading] = useState(true);
     const [realUserId, setRealUserId] = useState(null);
-
-    // Get the real logged-in user!
-    useEffect(() => {
-        getCurrentUser()
-            .then(user => setRealUserId(user.userId))
-            .catch(() => setRealUserId(anonymousUserId)); // Fallback if not logged in
-    }, [anonymousUserId]);
-
-    useEffect(() => {
-        if (!realUserId) return; // Wait until we know who is logged in
-
-        const API_URL = 'https://0la9c5d8ve.execute-api.us-east-1.amazonaws.com/getCourses';
-
-        const fetchCourses = () => {
-            fetch(`${API_URL}?userId=${realUserId}`) // Fetch using the REAL ID!
-                .then(res => res.json())
-                .then(data => {
-                    setCourseData(data.courses || data || []);
-                    setIsLoading(false);
-                })
-                .catch(err => {
-                    console.error('Failed to fetch filtered course data:', err);
-                    setIsLoading(false);
-                });
-        };
-
-        fetchCourses();
-        const intervalId = setInterval(fetchCourses, 10000);
-        return () => clearInterval(intervalId);
-    }, [realUserId]); // Depend on realUserId now
-
-    const videoData = location.state || {};
-
-    const [isPlaying, setIsPlaying] = useState(false);
-    const [activeVideoId, setActiveVideoId] = useState(videoData.activeVideoId || mockChapters[0].id);
-    const [activeChapterId] = useState(videoData.activeVideoId || mockChapters[0].id);
     const [isLowBandwidth, setIsLowBandwidth] = useState(false);
     const [isDrawerOpen, setIsDrawerOpen] = useState(false);
-    const [isCCEnabled, setIsCCEnabled] = useState(false);
-    const [activeLanguage, setActiveLanguage] = useState('EN');
     const [activeTab, setActiveTab] = useState('curriculum');
     const [chatInput, setChatInput] = useState('');
     const [chatMessages, setChatMessages] = useState([
-        { role: 'ai', content: `Hi! I'm your AI companion. Do you have any questions about "${videoData.title || 'this lecture'}"?` }
+        { role: 'ai', content: "Hi! I'm your AI companion. Do you have any questions about this lecture?" }
     ]);
-    const [isSynthesizingAudio, setIsSynthesizingAudio] = useState(false);
-    const [currentTimeRaw, setCurrentTimeRaw] = useState(135);
+    const videoRef = useRef(null);
+    const pollRef = useRef(null);
 
+    // ── Get logged-in user ────────────────────────────────────
     useEffect(() => {
-        let interval;
-        if (isPlaying && !isSynthesizingAudio) {
-            interval = setInterval(() => setCurrentTimeRaw(prev => prev + 1), 1000);
+        getCurrentUser()
+            .then(user => setRealUserId(user.userId))
+            .catch(() => setRealUserId(anonymousUserId));
+    }, [anonymousUserId]);
+
+    // ── Fetch courses — smart polling, stops when all ready ───
+    useEffect(() => {
+        if (!realUserId) return;
+
+        const API_URL = 'https://0la9c5d8ve.execute-api.us-east-1.amazonaws.com/getCourses';
+
+        const fetchCourses = async () => {
+            try {
+                const res = await fetch(`${API_URL}?userId=${realUserId}`);
+                if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                const data = await res.json();
+                const list = data.courses || [];
+                setCourses(list);
+                setIsLoading(false);
+
+                // Auto-select most recent course
+                if (list.length > 0 && !selectedCourse) {
+                    const sorted = [...list].sort((a, b) =>
+                        new Date(b.createdAt) - new Date(a.createdAt)
+                    );
+                    setSelectedCourse(sorted[0]);
+                }
+
+                // Stop polling if all courses are in a terminal state
+                const allDone = list.every(c =>
+                    c.videoStatus?.includes('Video Ready') ||
+                    c.videoStatus === 'Completed' ||
+                    c.videoStatus?.startsWith('Error')
+                );
+                if (allDone && pollRef.current) {
+                    clearInterval(pollRef.current);
+                    pollRef.current = null;
+                }
+            } catch (err) {
+                console.error('Failed to fetch courses:', err);
+                setIsLoading(false);
+            }
+        };
+
+        fetchCourses();
+        // Poll every 15s (not 10s) — stops automatically when done
+        pollRef.current = setInterval(fetchCourses, 15000);
+        return () => {
+            if (pollRef.current) clearInterval(pollRef.current);
+        };
+    }, [realUserId]);
+
+    // Update selectedCourse when courses refresh (get latest videoUrl/status)
+    useEffect(() => {
+        if (selectedCourse && courses.length > 0) {
+            const updated = courses.find(c => c.courseId === selectedCourse.courseId);
+            if (updated) setSelectedCourse(updated);
         }
-        return () => clearInterval(interval);
-    }, [isPlaying, isSynthesizingAudio]);
-
-    const handleLanguageChange = (e) => {
-        const newLang = e.target.value;
-        if (newLang !== activeLanguage) {
-            setActiveLanguage(newLang);
-            setIsSynthesizingAudio(true);
-            const wasPlaying = isPlaying;
-            setIsPlaying(false);
-            setTimeout(() => {
-                setIsSynthesizingAudio(false);
-                if (wasPlaying) setIsPlaying(true);
-            }, 1500);
-        }
-    };
-
-    const formatCurrentTime = (totalSeconds) => {
-        const m = Math.floor(totalSeconds / 60);
-        const s = totalSeconds % 60;
-        return `${m < 10 ? '0' : ''}${m}:${s < 10 ? '0' : ''}${s}`;
-    };
-
-    const togglePlay = () => setIsPlaying(!isPlaying);
+    }, [courses]);
 
     const handleSendMessage = (e) => {
         e.preventDefault();
@@ -103,31 +98,14 @@ export default function DashboardView() {
         setChatMessages(prev => [...prev, { role: 'user', content: chatInput }]);
         setChatInput('');
         setTimeout(() => {
-            setChatMessages(prev => [...prev, { role: 'ai', content: 'Great question! Based on this lecture, the key factor in energy transfer is...' }]);
+            setChatMessages(prev => [...prev, {
+                role: 'ai',
+                content: 'Great question! Based on this lecture, the key concepts covered include the main topics from your uploaded document. Feel free to ask more specific questions!'
+            }]);
         }, 1000);
     };
 
-    const currentVideo = videoData.playlist
-        ? videoData.playlist.find(v => v.id === activeVideoId)
-        : mockChapters.find(c => c.id === activeVideoId);
-
-    const displayTitle = currentVideo?.title || videoData.title;
-    const displayDuration = currentVideo?.duration || videoData.duration;
-    const displayChapterTitle = videoData.chapterTitle || videoData.chapter;
-    const displayChapters = videoData.playlist || mockChapters;
-
-    if (isLoading) {
-        return (
-            <div className="min-h-screen bg-slate-50 dark:bg-[#0a0f1c] flex items-center justify-center transition-colors duration-500">
-                <div className="flex flex-col items-center gap-4">
-                    <div className="w-12 h-12 border-4 border-[#22d3ee] border-t-transparent rounded-full animate-spin"></div>
-                    <p className="text-slate-600 dark:text-slate-400 font-medium animate-pulse">Loading course content...</p>
-                </div>
-            </div>
-        );
-    }
-
-    // ── Theme-aware color tokens ──────────────────────────────
+    // ── Theme tokens ──────────────────────────────────────────
     const panel = dark ? '#0f1623' : '#ffffff';
     const panelBorder = dark ? 'rgba(255,255,255,0.08)' : '#e2e8f0';
     const panelSub = dark ? '#0d1420' : '#fafafa';
@@ -140,7 +118,68 @@ export default function DashboardView() {
     const inputColor = dark ? '#f1f5f9' : '#1e293b';
     const msgUserBg = dark ? 'rgba(255,255,255,0.08)' : '#f1f5f9';
     const msgAiBg = dark ? 'rgba(168,85,247,0.12)' : 'rgba(168,85,247,0.08)';
-    // ──────────────────────────────────────────────────────────
+
+    // ── Derived values from selected course ───────────────────
+    const videoStatus = selectedCourse?.videoStatus || '';
+    const videoUrl = selectedCourse?.videoUrl || null;
+    const isVideoReady = videoStatus.includes('Video Ready') || videoStatus === 'Completed';
+    const isError = videoStatus.startsWith('Error');
+    const isProcessing = !isVideoReady && !isError;
+
+    // Parse curriculum from DynamoDB format
+    const curriculum = selectedCourse?.curriculum?.map(item => {
+        // Handle DynamoDB JSON format: { M: { lessonTitle: { S: "..." }, concepts: { L: [...] } } }
+        if (item?.M) {
+            const title = item.M.lessonTitle?.S || item.M.lesson?.S || 'Lesson';
+            const duration = item.M.duration?.S || '';
+            const concepts = item.M.concepts?.L?.map(c => c.S).filter(Boolean) || [];
+            return { title, duration, concepts };
+        }
+        // Already parsed
+        if (item?.lessonTitle || item?.lesson) {
+            return {
+                title: item.lessonTitle || item.lesson,
+                duration: item.duration || '',
+                concepts: item.concepts || []
+            };
+        }
+        return item;
+    }) || [];
+
+    // Sort courses newest first for sidebar
+    const sortedCourses = [...courses].sort((a, b) =>
+        new Date(b.createdAt) - new Date(a.createdAt)
+    );
+
+    // ── Loading screen ────────────────────────────────────────
+    if (isLoading) {
+        return (
+            <div className="min-h-screen bg-slate-50 dark:bg-[#0a0f1c] flex items-center justify-center">
+                <div className="flex flex-col items-center gap-4">
+                    <div className="w-12 h-12 border-4 border-[#22d3ee] border-t-transparent rounded-full animate-spin" />
+                    <p className="text-slate-600 dark:text-slate-400 font-medium animate-pulse">Loading your courses...</p>
+                </div>
+            </div>
+        );
+    }
+
+    // ── Empty state ───────────────────────────────────────────
+    if (courses.length === 0) {
+        return (
+            <div className="min-h-screen bg-slate-50 dark:bg-[#0a0f1c] flex items-center justify-center">
+                <div className="flex flex-col items-center gap-4 text-center p-8">
+                    <div style={{ width: 72, height: 72, borderRadius: '50%', background: 'rgba(34,211,238,0.1)', border: '1px solid rgba(34,211,238,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 8 }}>
+                        <Sparkles size={32} style={{ color: '#22d3ee' }} />
+                    </div>
+                    <h2 style={{ fontSize: 24, fontWeight: 700, color: textPri }}>No courses yet</h2>
+                    <p style={{ color: textSec, maxWidth: 300 }}>Upload a PDF to generate your first AI-powered video course!</p>
+                    <button onClick={() => navigate('/')} style={{ marginTop: 8, padding: '10px 24px', borderRadius: 9999, background: '#22d3ee', color: 'white', fontWeight: 700, border: 'none', cursor: 'pointer', fontSize: 14 }}>
+                        Upload a PDF
+                    </button>
+                </div>
+            </div>
+        );
+    }
 
     return (
         <div
@@ -176,77 +215,68 @@ export default function DashboardView() {
                 {/* ── LEFT COLUMN ── */}
                 <div className="flex flex-col gap-4 md:gap-6 w-full">
 
+                    {/* Course Header */}
                     <div className="mb-[-8px]">
                         <div style={{ color: '#22d3ee', fontSize: '11px', fontWeight: 700, letterSpacing: '3px', textTransform: 'uppercase', marginBottom: '8px', marginLeft: '4px' }}>
-                            {displayChapterTitle}
+                            AI Generated Course
                         </div>
-                        <h1 style={{ fontSize: '28px', fontWeight: 800, letterSpacing: '-0.02em', lineHeight: 1.2, color: textPri }}>
-                            {courseData?.title || 'Loading...'}
+                        <h1 style={{ fontSize: '24px', fontWeight: 800, letterSpacing: '-0.02em', lineHeight: 1.2, color: textPri }}>
+                            {selectedCourse?.fileName?.replace('.pdf', '') || 'Your Course'}
                         </h1>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginTop: '10px', marginLeft: '4px' }}>
-                            <span style={{ padding: '4px 10px', borderRadius: '6px', background: dark ? 'rgba(255,255,255,0.08)' : 'white', border: `1px solid ${panelBorder}`, fontSize: '12px', fontFamily: 'monospace', color: textMid }}>
-                                {courseData?.currentVideoDuration || '0:00'}
+                            <span style={{ padding: '3px 10px', borderRadius: '6px', background: isVideoReady ? 'rgba(34,211,238,0.1)' : (isError ? 'rgba(239,68,68,0.1)' : 'rgba(168,85,247,0.1)'), border: `1px solid ${isVideoReady ? 'rgba(34,211,238,0.3)' : (isError ? 'rgba(239,68,68,0.3)' : 'rgba(168,85,247,0.3)')}`, fontSize: '11px', fontWeight: 700, color: isVideoReady ? '#22d3ee' : (isError ? '#ef4444' : '#a855f7') }}>
+                                {isVideoReady ? '✓ Video Ready' : isError ? '✗ Error' : '⟳ Processing...'}
                             </span>
-                            <span style={{ width: '4px', height: '4px', borderRadius: '50%', background: '#cbd5e1' }} />
-                            <span style={{ fontSize: '13px', fontWeight: 500, color: textSec }}>AI Generated Lecture</span>
+                            <span style={{ fontSize: '12px', color: textSec }}>
+                                {selectedCourse?.createdAt ? new Date(selectedCourse.createdAt).toLocaleDateString() : ''}
+                            </span>
                         </div>
                     </div>
 
                     {/* Video Card */}
                     <div style={{ background: panel, border: `1px solid ${panelBorder}`, borderRadius: '16px', overflow: 'hidden', boxShadow: dark ? '0 4px 20px rgba(0,0,0,0.3)' : '0 2px 8px rgba(0,0,0,0.04)' }}>
 
-                        {isLowBandwidth ? (
-                            <div style={{ aspectRatio: '21/9', background: '#0f172a', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '1.5rem' }}>
-                                <div style={{ width: '72px', height: '72px', borderRadius: '50%', background: 'rgba(52,211,153,0.2)', border: '1px solid rgba(52,211,153,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '1rem' }}>
-                                    <Headphones size={30} style={{ color: '#34d399' }} />
+                        {/* Video Player Area */}
+                        <div style={{ aspectRatio: '16/9', background: '#0a0a0a', position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
+
+                            {isError ? (
+                                <div style={{ color: '#ef4444', textAlign: 'center', padding: '20px' }}>
+                                    <p style={{ fontWeight: 700, marginBottom: '8px', fontSize: 16 }}>⚠ Video Generation Failed</p>
+                                    <p style={{ fontSize: '12px', color: 'rgba(239,68,68,0.7)' }}>{videoStatus}</p>
                                 </div>
-                                <div style={{ color: 'white', fontWeight: 600 }}>Audio Mode Active</div>
-                                <div style={{ color: '#34d399', fontSize: '11px', marginTop: '4px', fontFamily: 'monospace' }}>SAVING DATA</div>
-                                <div style={{ width: '100%', maxWidth: '360px', marginTop: '1.5rem', display: 'flex', alignItems: 'center', gap: '12px' }}>
-                                    <button onClick={togglePlay} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'white' }}>
-                                        {isPlaying ? <Pause size={22} /> : <Play size={22} />}
-                                    </button>
-                                    <div style={{ flex: 1, height: '6px', background: 'rgba(255,255,255,0.2)', borderRadius: '9999px', position: 'relative' }}>
-                                        <div style={{ position: 'absolute', left: 0, top: 0, height: '100%', width: '35%', background: '#34d399', borderRadius: '9999px' }} />
-                                    </div>
-                                    <span style={{ color: 'rgba(255,255,255,0.7)', fontSize: '12px', fontFamily: 'monospace' }}>{formatCurrentTime(currentTimeRaw)} / {displayDuration}</span>
+
+                            ) : isVideoReady && videoUrl ? (
+                                <video
+                                    ref={videoRef}
+                                    key={videoUrl}  // Force remount when URL changes
+                                    src={videoUrl}
+                                    controls
+                                    style={{ width: '100%', height: '100%', objectFit: 'contain' }}
+                                    onError={(e) => console.error('Video load error:', e)}
+                                >
+                                    Your browser does not support the HTML5 video tag.
+                                </video>
+
+                            ) : isVideoReady && !videoUrl ? (
+                                // Ready but no URL yet — show message
+                                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '12px', padding: 20 }}>
+                                    <div className="w-10 h-10 border-4 border-[#22d3ee] border-t-transparent rounded-full animate-spin" />
+                                    <p style={{ color: '#22d3ee', fontWeight: 600 }}>Video ready, loading URL...</p>
                                 </div>
-                            </div>
-                        ) : (
-                            <div style={{ aspectRatio: '16/9', background: '#0a0a0a', position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }} className="group">
 
-                                {/* 1. CHECK STATUS: Did it fail? */}
-                                {courseData?.[0]?.videoStatus?.startsWith('Error') ? (
-                                    <div style={{ color: '#ef4444', textAlign: 'center', padding: '20px' }}>
-                                        <p style={{ fontWeight: 700, marginBottom: '8px' }}>Video Generation Failed</p>
-                                        <p style={{ fontSize: '12px' }}>{courseData?.[0]?.videoStatus}</p>
+                            ) : (
+                                // Still processing
+                                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '16px', padding: 20, textAlign: 'center' }}>
+                                    <div className="w-12 h-12 border-4 border-[#a855f7] border-t-transparent rounded-full animate-spin" />
+                                    <div style={{ color: 'white', fontWeight: 600 }}>
+                                        {videoStatus || 'AI is generating your lecture...'}
                                     </div>
-
-                                    /* 2. CHECK STATUS: Is it fully complete? (Video Ready or Completed) */
-                                ) : (courseData?.[0]?.videoStatus?.includes('Ready') || courseData?.[0]?.videoStatus === 'Completed') ? (
-                                    <video
-                                        // Uses the URL we predicted and saved to DynamoDB!
-                                        src={courseData?.[0]?.videoUrl || "https://www.w3schools.com/html/mov_bbb.mp4"}
-                                        controls
-                                        autoPlay
-                                        style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                                    >
-                                        Your browser does not support the HTML5 video tag.
-                                    </video>
-
-                                    /* 3. DEFAULT: If it's not Error and not Ready, it must still be processing! */
-                                ) : (
-                                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '16px' }}>
-                                        <div className="w-12 h-12 border-4 border-[#a855f7] border-t-transparent rounded-full animate-spin"></div>
-                                        <div style={{ color: 'white', fontWeight: 600, animation: 'pulse 2s infinite' }}>
-                                            {courseData?.[0]?.videoStatus || 'AI is generating your lecture...'}
-                                        </div>
+                                    <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.4)' }}>
+                                        This usually takes 2–5 minutes. Page auto-refreshes.
                                     </div>
-                                )}
-
-                                {/* Keep your CC and Action Bar overlays here if you want them floating over the video */}
-                            </div>
-                        )}
+                                </div>
+                            )}
+                        </div>
 
                         {/* Action Bar */}
                         <div style={{ padding: '14px 16px', borderTop: `1px solid ${panelBorder}`, display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: '12px', background: panelSub }}>
@@ -263,49 +293,50 @@ export default function DashboardView() {
                         </div>
                     </div>
 
-                    {/* Smart Notes */}
-                    <div style={{ background: panel, border: `1px solid ${panelBorder}`, borderRadius: '14px', padding: '1.5rem', boxShadow: dark ? '0 4px 20px rgba(0,0,0,0.25)' : '0 1px 4px rgba(0,0,0,0.04)' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '1.25rem', paddingBottom: '1rem', borderBottom: `1px solid ${panelBorder}` }}>
-                            <div style={{ padding: '8px', background: 'rgba(34,211,238,0.1)', borderRadius: '8px', border: '1px solid rgba(34,211,238,0.2)' }}>
-                                <Sparkles size={18} style={{ color: '#22d3ee' }} />
-                            </div>
-                            <h3 style={{ fontSize: '16px', fontWeight: 700, color: textPri }}>
-                                Smart Notes
-                                <span style={{ fontSize: '10px', padding: '2px 8px', borderRadius: '9999px', background: dark ? 'rgba(255,255,255,0.08)' : '#f1f5f9', color: textSec, fontWeight: 600, textTransform: 'uppercase', marginLeft: '8px', border: `1px solid ${panelBorder}` }}>Auto-Generated</span>
-                            </h3>
-                        </div>
-                        <ul style={{ display: 'flex', flexDirection: 'column', gap: '6px', maxHeight: '280px', overflowY: 'auto', paddingRight: '8px' }}>
-                            {courseData?.smartNotes ? courseData.smartNotes.map((note, idx) => {
-                                const t = note.time || idx * 15;
-                                const takeawayText = note.text || note;
-                                const isActive = currentTimeRaw >= t && currentTimeRaw < t + 15;
-                                return (
-                                    <li key={idx} style={{ display: 'flex', gap: '12px', alignItems: 'flex-start', padding: '10px 12px', borderRadius: '10px', border: isActive ? '1px solid rgba(34,211,238,0.3)' : '1px solid transparent', background: isActive ? 'rgba(34,211,238,0.06)' : 'transparent', cursor: 'pointer', transition: 'all 0.3s' }}
-                                        onMouseEnter={e => { if (!isActive) e.currentTarget.style.background = rowHover; }}
-                                        onMouseLeave={e => { if (!isActive) e.currentTarget.style.background = 'transparent'; }}
-                                    >
-                                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px', flexShrink: 0, marginTop: '2px' }}>
-                                            <Zap size={13} style={{ color: isActive ? '#22d3ee' : '#94a3b8' }} />
-                                            <span style={{ fontSize: '9px', fontFamily: 'monospace', fontWeight: 700, padding: '2px 4px', borderRadius: '4px', background: isActive ? 'rgba(34,211,238,0.15)' : (dark ? 'rgba(255,255,255,0.08)' : '#f1f5f9'), color: isActive ? '#22d3ee' : textSec }}>
-                                                {formatCurrentTime(t)}
-                                            </span>
+                    {/* My Courses list (below video on mobile, useful for switching) */}
+                    {sortedCourses.length > 1 && (
+                        <div style={{ background: panel, border: `1px solid ${panelBorder}`, borderRadius: '14px', padding: '1.25rem', boxShadow: dark ? '0 4px 20px rgba(0,0,0,0.25)' : '0 1px 4px rgba(0,0,0,0.04)' }}>
+                            <h3 style={{ fontSize: '14px', fontWeight: 700, color: textPri, marginBottom: '12px' }}>My Courses</h3>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                                {sortedCourses.map((course) => {
+                                    const isSelected = course.courseId === selectedCourse?.courseId;
+                                    const ready = course.videoStatus?.includes('Video Ready') || course.videoStatus === 'Completed';
+                                    const err = course.videoStatus?.startsWith('Error');
+                                    return (
+                                        <div
+                                            key={course.courseId}
+                                            onClick={() => setSelectedCourse(course)}
+                                            style={{
+                                                display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px',
+                                                borderRadius: 10, cursor: 'pointer', transition: 'all 0.15s',
+                                                border: isSelected ? '1px solid rgba(34,211,238,0.3)' : `1px solid ${panelBorder}`,
+                                                background: isSelected ? 'rgba(34,211,238,0.06)' : (dark ? 'rgba(255,255,255,0.02)' : '#fafafa'),
+                                            }}
+                                            onMouseEnter={e => { if (!isSelected) e.currentTarget.style.background = rowHover; }}
+                                            onMouseLeave={e => { if (!isSelected) e.currentTarget.style.background = isSelected ? 'rgba(34,211,238,0.06)' : (dark ? 'rgba(255,255,255,0.02)' : '#fafafa'); }}
+                                        >
+                                            <div style={{ width: 8, height: 8, borderRadius: '50%', flexShrink: 0, background: ready ? '#22d3ee' : (err ? '#ef4444' : '#a855f7') }} />
+                                            <div style={{ flex: 1, minWidth: 0 }}>
+                                                <div style={{ fontSize: 13, fontWeight: isSelected ? 600 : 500, color: isSelected ? '#22d3ee' : textMid, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                                    {course.fileName?.replace('.pdf', '') || course.courseId}
+                                                </div>
+                                                <div style={{ fontSize: 11, color: textSec, marginTop: 1 }}>
+                                                    {course.videoStatus || 'Pending'}
+                                                </div>
+                                            </div>
+                                            <ChevronRight size={14} style={{ color: textSec, flexShrink: 0 }} />
                                         </div>
-                                        <span style={{ fontSize: '14px', lineHeight: 1.55, color: isActive ? textPri : (dark ? 'rgba(255,255,255,0.6)' : '#475569'), fontWeight: isActive ? 500 : 400 }}>
-                                            {takeawayText}
-                                        </span>
-                                    </li>
-                                );
-                            }) : (
-                                <li style={{ color: textSec, fontStyle: 'italic', padding: '8px' }}>Notes are being generated for this video...</li>
-                            )}
-                        </ul>
-                    </div>
+                                    );
+                                })}
+                            </div>
+                        </div>
+                    )}
                 </div>
 
                 {/* Mobile Backdrop */}
                 <div className={`fixed inset-0 bg-black/50 z-40 md:hidden transition-opacity ${isDrawerOpen ? 'opacity-100' : 'opacity-0 pointer-events-none'}`} onClick={() => setIsDrawerOpen(false)} />
 
-                {/* ── RIGHT PANEL — fully theme-aware ── */}
+                {/* ── RIGHT PANEL ── */}
                 <div
                     className={`fixed md:relative top-0 right-0 h-full md:h-[calc(100vh-10rem)] w-[85%] sm:w-[350px] md:w-auto flex flex-col shadow-2xl transition-transform duration-500 z-50 md:z-auto ${isDrawerOpen ? 'translate-x-0' : 'translate-x-full md:translate-x-0'}`}
                     style={{ background: panel, border: `1px solid ${panelBorder}`, borderRadius: '14px', overflow: 'hidden' }}
@@ -314,7 +345,7 @@ export default function DashboardView() {
                     <div style={{ display: 'none', alignItems: 'center', justifyContent: 'space-between', padding: '1rem', borderBottom: `1px solid ${panelBorder}`, background: panelSub }}
                         className="!flex md:!hidden">
                         <span style={{ fontWeight: 700, color: textPri, fontSize: '15px' }}>Course Materials</span>
-                        <button onClick={() => setIsDrawerOpen(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: textSec, padding: '4px' }}>
+                        <button onClick={() => setIsDrawerOpen(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: textSec }}>
                             <X size={20} />
                         </button>
                     </div>
@@ -333,7 +364,7 @@ export default function DashboardView() {
                                 {tab === 'ask_ai' && <BrainCircuit size={14} />}
                                 {tab === 'curriculum' ? 'Curriculum' : 'Ask AI'}
                                 {activeTab === tab && (
-                                    <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: '2px', background: tab === 'curriculum' ? '#22d3ee' : '#a855f7', boxShadow: tab === 'curriculum' ? '0 0 8px rgba(34,211,238,0.5)' : '0 0 8px rgba(168,85,247,0.5)' }} />
+                                    <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: '2px', background: tab === 'curriculum' ? '#22d3ee' : '#a855f7' }} />
                                 )}
                             </button>
                         ))}
@@ -345,43 +376,53 @@ export default function DashboardView() {
                         {activeTab === 'curriculum' && (
                             <div>
                                 <div style={{ padding: '16px 20px', borderBottom: `1px solid ${panelBorder}`, background: panelSub }}>
-                                    <h4 style={{ fontWeight: 600, color: textPri, marginBottom: '4px', fontSize: '14px' }}>Course Content</h4>
-                                    <p style={{ fontSize: '11px', color: textSec, fontFamily: 'monospace' }}>{courseData?.totalChapters || 0} Chapters • {courseData?.totalDuration || 0} min total</p>
+                                    <h4 style={{ fontWeight: 600, color: textPri, marginBottom: '4px', fontSize: '14px' }}>Course Curriculum</h4>
+                                    <p style={{ fontSize: '11px', color: textSec, fontFamily: 'monospace' }}>
+                                        {curriculum.length} lessons
+                                    </p>
                                 </div>
-                                {courseData?.chapters?.map((chapter, idx) => {
-                                    const isActive = activeVideoId === chapter.id;
-                                    return (
-                                        <div key={idx} onClick={() => setActiveVideoId(chapter.id)} style={{
-                                            padding: '14px 16px', borderBottom: `1px solid ${panelBorder}`, cursor: 'pointer',
-                                            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                                            borderLeft: isActive ? '3px solid #22d3ee' : '3px solid transparent',
-                                            background: isActive ? 'rgba(34,211,238,0.06)' : 'transparent',
-                                            transition: 'all 0.15s',
-                                        }}
-                                            onMouseEnter={e => { if (!isActive) e.currentTarget.style.background = rowHover; }}
-                                            onMouseLeave={e => { if (!isActive) e.currentTarget.style.background = 'transparent'; }}
-                                        >
-                                            <div style={{ display: 'flex', alignItems: 'flex-start', gap: '12px', flex: 1 }}>
-                                                <div style={{ width: '22px', height: '22px', borderRadius: '50%', flexShrink: 0, marginTop: '1px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '10px', fontWeight: 700, border: isActive ? '1px solid rgba(34,211,238,0.4)' : `1px solid ${panelBorder}`, background: isActive ? 'rgba(34,211,238,0.1)' : (dark ? 'rgba(255,255,255,0.05)' : '#f8fafc'), color: isActive ? '#22d3ee' : textSec }}>
-                                                    {idx + 1}
-                                                </div>
-                                                <div>
-                                                    <div style={{ fontSize: '13px', fontWeight: isActive ? 600 : 500, color: isActive ? '#22d3ee' : textMid, marginBottom: '2px' }}>{chapter.title}</div>
-                                                    <div style={{ fontSize: '11px', color: textSec, fontFamily: 'monospace' }}>{chapter.duration}</div>
-                                                </div>
+
+                                {curriculum.length === 0 ? (
+                                    <div style={{ padding: '20px', color: textSec, fontSize: 13, textAlign: 'center' }}>
+                                        Curriculum is being generated...
+                                    </div>
+                                ) : curriculum.map((lesson, idx) => (
+                                    <div key={idx} style={{
+                                        padding: '14px 16px', borderBottom: `1px solid ${panelBorder}`,
+                                        transition: 'background 0.15s',
+                                    }}
+                                        onMouseEnter={e => e.currentTarget.style.background = rowHover}
+                                        onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                                    >
+                                        <div style={{ display: 'flex', alignItems: 'flex-start', gap: '10px' }}>
+                                            <div style={{ width: '22px', height: '22px', borderRadius: '50%', flexShrink: 0, marginTop: '1px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '10px', fontWeight: 700, border: `1px solid ${panelBorder}`, background: dark ? 'rgba(255,255,255,0.05)' : '#f8fafc', color: textSec }}>
+                                                {idx + 1}
                                             </div>
-                                            {isActive ? (
-                                                <div style={{ display: 'flex', gap: '3px', alignItems: 'flex-end', height: '14px', marginLeft: '8px' }}>
-                                                    {[0, 200, 400].map(delay => (
-                                                        <div key={delay} style={{ width: '3px', background: '#22d3ee', borderRadius: '2px', animation: `bounce 1s infinite ${delay}ms` }} />
-                                                    ))}
+                                            <div style={{ flex: 1 }}>
+                                                <div style={{ fontSize: '13px', fontWeight: 600, color: textMid, marginBottom: '4px' }}>
+                                                    {lesson.title}
                                                 </div>
-                                            ) : (
-                                                <Play size={13} style={{ color: textSec, marginLeft: '8px', flexShrink: 0 }} />
-                                            )}
+                                                {lesson.duration && (
+                                                    <div style={{ fontSize: '11px', color: textSec, fontFamily: 'monospace', marginBottom: '4px' }}>
+                                                        {lesson.duration}
+                                                    </div>
+                                                )}
+                                                {lesson.concepts?.length > 0 && (
+                                                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', marginTop: '6px' }}>
+                                                        {lesson.concepts.slice(0, 3).map((concept, cIdx) => (
+                                                            <span key={cIdx} style={{ fontSize: '10px', padding: '2px 8px', borderRadius: '9999px', background: dark ? 'rgba(34,211,238,0.08)' : 'rgba(34,211,238,0.06)', border: '1px solid rgba(34,211,238,0.2)', color: '#22d3ee', fontWeight: 500 }}>
+                                                                {concept}
+                                                            </span>
+                                                        ))}
+                                                        {lesson.concepts.length > 3 && (
+                                                            <span style={{ fontSize: '10px', color: textSec }}>+{lesson.concepts.length - 3} more</span>
+                                                        )}
+                                                    </div>
+                                                )}
+                                            </div>
                                         </div>
-                                    );
-                                })}
+                                    </div>
+                                ))}
                             </div>
                         )}
 
@@ -417,7 +458,7 @@ export default function DashboardView() {
                                             placeholder="Ask a doubt..."
                                             style={{ width: '100%', padding: '10px 44px 10px 16px', borderRadius: '9999px', border: `1px solid ${inputBorder}`, background: inputBg, fontSize: '13px', color: inputColor, outline: 'none', fontFamily: 'inherit' }}
                                         />
-                                        <button type="submit" disabled={!chatInput.trim()} style={{ position: 'absolute', right: '6px', width: '32px', height: '32px', borderRadius: '50%', border: '1px solid rgba(168,85,247,0.3)', background: 'rgba(168,85,247,0.1)', color: '#a855f7', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: chatInput.trim() ? 'pointer' : 'not-allowed', opacity: chatInput.trim() ? 1 : 0.5, transition: 'all 0.2s' }}>
+                                        <button type="submit" disabled={!chatInput.trim()} style={{ position: 'absolute', right: '6px', width: '32px', height: '32px', borderRadius: '50%', border: '1px solid rgba(168,85,247,0.3)', background: 'rgba(168,85,247,0.1)', color: '#a855f7', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: chatInput.trim() ? 'pointer' : 'not-allowed', opacity: chatInput.trim() ? 1 : 0.5 }}>
                                             <Send size={13} />
                                         </button>
                                     </form>
@@ -433,8 +474,6 @@ export default function DashboardView() {
             <button onClick={() => setIsDrawerOpen(true)} className="md:hidden" style={{ position: 'fixed', bottom: '6rem', right: '1.5rem', zIndex: 30, width: '56px', height: '56px', borderRadius: '50%', background: '#22d3ee', color: 'white', border: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 5px 20px rgba(34,211,238,0.4)', cursor: 'pointer' }}>
                 <Menu size={24} />
             </button>
-
-            <style>{`@keyframes bounce { 0%, 100% { height: 4px; } 50% { height: 14px; } }`}</style>
         </div>
     );
 }
