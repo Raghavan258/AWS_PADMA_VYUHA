@@ -1,282 +1,298 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ChevronDown, ChevronUp, Zap, Lock, Play, ArrowLeft } from 'lucide-react';
+import { ChevronDown, ChevronUp, Zap, Lock, Play, ArrowLeft, Sparkles } from 'lucide-react';
+import { useTheme } from '../../contexts/ThemeContext';
+import { useAnonymousUser } from '../../hooks/useAnonymousUser';
+import { getCurrentUser } from 'aws-amplify/auth';
 
 export default function CurriculumView() {
     const { id } = useParams();
     const navigate = useNavigate();
+    const { isDarkMode } = useTheme();
+    const dark = isDarkMode;
+    const anonymousUserId = useAnonymousUser();
 
-    // Mock data matching the requested textbook structure.
-    const textbookData = {
-        title: id === '2' ? 'Advanced Engineering Mathematics' : 'Biology Grade 12',
-        overallProgress: id === '2' ? 100 : 24,
-        chapters: [
-            {
-                id: 1,
-                title: "Chapter 1: The Chemistry of Life",
-                status: "READY",
-                videos: [
-                    { id: 101, title: "1.1 · Intro to Cell Structure", duration: "4m 20s", completed: true },
-                    { id: 102, title: "1.2 · Mitosis and Meiosis", duration: "5m 10s", completed: false }
-                ]
-            },
-            {
-                id: 2,
-                title: "Chapter 2: Energy Transfer",
-                status: "PROCESSING",
-                videos: []
-            },
-            {
-                id: 3,
-                title: "Chapter 3: Genetics",
-                status: "UNPROCESSED",
-                videos: []
-            },
-            {
-                id: 4,
-                title: "Chapter 4: Evolution",
-                status: "UNPROCESSED",
-                videos: []
+    const [courses, setCourses] = useState([]);
+    const [selectedCourse, setSelectedCourse] = useState(null);
+    const [isLoading, setIsLoading] = useState(true);
+    const [realUserId, setRealUserId] = useState(null);
+    const [expandedChapter, setExpandedChapter] = useState(0);
+
+    // ── Get logged-in user ────────────────────────────────────
+    useEffect(() => {
+        getCurrentUser()
+            .then(user => setRealUserId(user.username || user.userId))
+            .catch(() => setRealUserId(anonymousUserId));
+    }, [anonymousUserId]);
+
+    // ── Fetch courses ─────────────────────────────────────────
+    useEffect(() => {
+        if (!realUserId) return;
+
+        const fetchCourses = async () => {
+            try {
+                const res = await fetch(`https://0la9c5d8ve.execute-api.us-east-1.amazonaws.com/getCourses?userId=${realUserId}`);
+                if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                const data = await res.json();
+                const list = data.courses || [];
+                setCourses(list);
+
+                // If id param provided, find that course; otherwise pick most recent
+                if (id) {
+                    const found = list.find(c => c.courseId === id);
+                    setSelectedCourse(found || list[0] || null);
+                } else {
+                    const sorted = [...list].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+                    setSelectedCourse(sorted[0] || null);
+                }
+            } catch (err) {
+                console.error('Failed to fetch courses:', err);
+            } finally {
+                setIsLoading(false);
             }
-        ]
-    };
+        };
 
-    const [expandedChapter, setExpandedChapter] = useState(textbookData.chapters[0].id);
+        fetchCourses();
+    }, [realUserId, id]);
 
-    const toggleChapter = (chapterId) => {
-        setExpandedChapter(expandedChapter === chapterId ? null : chapterId);
-    };
+    // ── Parse curriculum from DynamoDB format ─────────────────
+    const curriculum = selectedCourse?.curriculum?.map(item => {
+        if (item?.M) {
+            return {
+                title: item.M.lessonTitle?.S || item.M.lesson?.S || 'Lesson',
+                duration: item.M.duration?.S || '',
+                concepts: item.M.concepts?.L?.map(c => c.S).filter(Boolean) || [],
+            };
+        }
+        if (item?.lessonTitle || item?.lesson) {
+            return {
+                title: item.lessonTitle || item.lesson,
+                duration: item.duration || '',
+                concepts: item.concepts || [],
+            };
+        }
+        return { title: 'Lesson', duration: '', concepts: [] };
+    }) || [];
+
+    const isVideoReady = selectedCourse?.videoStatus?.includes('Video Ready') || selectedCourse?.videoStatus === 'Completed';
+    const isProcessing = !isVideoReady && !selectedCourse?.videoStatus?.startsWith('Error');
+
+    // ── Loading ───────────────────────────────────────────────
+    if (isLoading) {
+        return (
+            <div className="min-h-screen bg-slate-50 dark:bg-[#0a0f1c] flex items-center justify-center">
+                <div className="flex flex-col items-center gap-4">
+                    <div className="w-12 h-12 border-4 border-[#22d3ee] border-t-transparent rounded-full animate-spin" />
+                    <p className="text-slate-600 dark:text-slate-400 font-medium animate-pulse">Loading curriculum...</p>
+                </div>
+            </div>
+        );
+    }
+
+    // ── Empty ─────────────────────────────────────────────────
+    if (!selectedCourse) {
+        return (
+            <div className="min-h-screen bg-slate-50 dark:bg-[#0a0f1c] flex items-center justify-center">
+                <div className="flex flex-col items-center gap-4 text-center p-8">
+                    <Sparkles size={32} style={{ color: '#22d3ee' }} />
+                    <h2 className="text-slate-900 dark:text-white font-bold text-xl">No courses found</h2>
+                    <button onClick={() => navigate('/')} style={{ padding: '10px 24px', borderRadius: 9999, background: '#22d3ee', color: 'white', fontWeight: 700, border: 'none', cursor: 'pointer' }}>
+                        Upload a PDF
+                    </button>
+                </div>
+            </div>
+        );
+    }
 
     return (
-        <div className="px-12 pt-10 pb-32 relative overflow-hidden min-h-screen bg-slate-50 dark:bg-[#0a0f1c] font-sans transition-colors duration-500" style={{ fontFamily: "'Inter', system-ui, sans-serif" }}>
-            {/* Background Spotlights & Noise */}
-            <div className="absolute inset-0 pointer-events-none z-0 overflow-hidden mix-blend-multiply dark:mix-blend-normal">
-                <div className="absolute inset-0" style={{ background: 'radial-gradient(ellipse 600px 400px at 10% 20%, rgba(0,245,212,0.06), transparent)' }}></div>
-                <div className="absolute inset-0" style={{ background: 'radial-gradient(ellipse 600px 400px at 90% 80%, rgba(124,58,237,0.08), transparent)' }}></div>
-            </div>
+        <div className="px-6 md:px-12 pt-10 pb-32 min-h-screen bg-slate-50 dark:bg-[#0a0f1c] transition-colors duration-500" style={{ fontFamily: "'Inter', system-ui, sans-serif" }}>
 
-            {/* Top Navigation / Breadcrumb */}
-            <div className="w-full mx-auto flex items-center mb-6 relative z-10 p-2">
-                <button
-                    onClick={() => navigate('/upload')}
-                    className="flex items-center gap-2 text-slate-500 dark:text-white/50 hover:text-slate-900 dark:hover:text-white transition-colors text-[12px] uppercase tracking-[2px]"
-                >
-                    <ArrowLeft size={14} /> Curriculum
-                </button>
-            </div>
+            {/* Breadcrumb */}
+            <button
+                onClick={() => navigate('/dashboard')}
+                className="flex items-center gap-2 mb-6 text-slate-500 dark:text-white/50 hover:text-slate-900 dark:hover:text-white transition-colors"
+                style={{ fontSize: '11px', letterSpacing: '2px', textTransform: 'uppercase', background: 'none', border: 'none', cursor: 'pointer' }}
+            >
+                <ArrowLeft size={14} /> Back to Dashboard
+            </button>
 
-            {/* Header Flex Row */}
-            <header className="w-full mx-auto flex items-center justify-between relative z-10 mb-10 pb-8 border-b border-gray-200 dark:border-white/[0.08] transition-colors duration-500">
-                <div className="flex flex-col items-start pr-8">
-                    <h1 className="text-[40px] font-[800] text-slate-900 dark:text-white leading-tight font-display tracking-tight transition-colors duration-500">
-                        {textbookData.title}
+            {/* Course selector if multiple courses */}
+            {courses.length > 1 && (
+                <div style={{ marginBottom: '24px' }}>
+                    <select
+                        value={selectedCourse?.courseId || ''}
+                        onChange={e => {
+                            const found = courses.find(c => c.courseId === e.target.value);
+                            if (found) setSelectedCourse(found);
+                        }}
+                        style={{
+                            padding: '8px 14px', borderRadius: '8px', fontSize: '13px', fontWeight: 600,
+                            border: '1px solid #e2e8f0', background: dark ? '#0f1623' : 'white',
+                            color: dark ? '#f1f5f9' : '#0f172a', cursor: 'pointer', outline: 'none'
+                        }}
+                    >
+                        {courses.map(c => (
+                            <option key={c.courseId} value={c.courseId}>
+                                {c.fileName?.replace('.pdf', '') || c.courseId}
+                            </option>
+                        ))}
+                    </select>
+                </div>
+            )}
+
+            {/* Header */}
+            <header className="flex items-center justify-between mb-10 pb-8 border-b border-gray-200 dark:border-white/10">
+                <div className="flex-1 pr-8">
+                    <h1 className="text-3xl md:text-4xl font-extrabold text-slate-900 dark:text-white leading-tight tracking-tight">
+                        {selectedCourse?.fileName?.replace('.pdf', '') || 'Your Course'}
                     </h1>
-                    <p className="text-slate-500 dark:text-white/50 text-[14px] mt-1 font-medium mb-6 transition-colors duration-500">
-                        {textbookData.chapters.length} Chapters • {textbookData.overallProgress}% Mastery
+                    <p className="text-slate-500 dark:text-white/50 text-sm mt-1 mb-6">
+                        {curriculum.length} Lessons •{' '}
+                        <span style={{ color: isVideoReady ? '#0d9488' : '#a855f7' }}>
+                            {isVideoReady ? 'Video Ready' : selectedCourse?.videoStatus || 'Processing...'}
+                        </span>
                     </p>
-                    <button className="magnetic-btn-neon shadow-[0_0_20px_rgba(0,245,212,0.3)]">
-                        [ RESUME LEARNING ]
+                    <button
+                        onClick={() => navigate('/dashboard')}
+                        style={{
+                            background: 'rgba(34,211,238,0.08)', color: '#0d9488',
+                            fontSize: '11px', fontWeight: 700, padding: '8px 18px',
+                            border: '1px solid rgba(34,211,238,0.4)', borderRadius: '9999px',
+                            cursor: 'pointer', letterSpacing: '0.1em',
+                            boxShadow: '0 0 12px rgba(34,211,238,0.15)', transition: 'all 0.2s',
+                        }}
+                        className="dark:!text-[#22d3ee]"
+                        onMouseEnter={e => e.currentTarget.style.boxShadow = '0 0 22px rgba(34,211,238,0.4)'}
+                        onMouseLeave={e => e.currentTarget.style.boxShadow = '0 0 12px rgba(34,211,238,0.15)'}
+                    >
+                        [ WATCH VIDEO ]
                     </button>
                 </div>
 
-                {/* Compact Progress Ring */}
-                <div className="relative flex items-center justify-center w-[80px] h-[80px] shrink-0 mt-2">
-                    <svg className="transform -rotate-90 w-full h-full drop-shadow-[0_0_8px_rgba(0,245,212,0.4)]">
-                        <circle cx="40" cy="40" r="34" stroke="#1f2937" strokeWidth="6" fill="transparent" />
-                        <circle cx="40" cy="40" r="34" stroke="#00f5d4" strokeWidth="6" fill="transparent"
+                {/* Progress Ring */}
+                <div style={{ position: 'relative', width: '80px', height: '80px', flexShrink: 0 }}>
+                    <svg style={{ transform: 'rotate(-90deg)', width: '100%', height: '100%' }}>
+                        <circle cx="40" cy="40" r="34" stroke="#e2e8f0" strokeWidth="6" fill="transparent" className="dark:!stroke-white/10" />
+                        <circle cx="40" cy="40" r="34" stroke="#0d9488" strokeWidth="6" fill="transparent"
                             strokeDasharray={2 * Math.PI * 34}
-                            strokeDashoffset={2 * Math.PI * 34 - (textbookData.overallProgress / 100) * 2 * Math.PI * 34}
-                            className="transition-all duration-1000 ease-out drop-shadow-[0_0_8px_rgba(0,245,212,0.6)]"
+                            strokeDashoffset={isVideoReady ? 0 : 2 * Math.PI * 34 * 0.7}
+                            style={{ transition: 'stroke-dashoffset 1s ease-out' }}
+                            className="dark:!stroke-[#22d3ee]"
                         />
                     </svg>
-                    <div className="absolute inset-0 flex items-center justify-center">
-                        <span className="text-[16px] font-bold text-[#00f5d4]">{textbookData.overallProgress}%</span>
+                    <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                        <span style={{ fontSize: '13px', fontWeight: 700, color: '#0d9488' }} className="dark:!text-[#22d3ee]">
+                            {isVideoReady ? '100%' : '30%'}
+                        </span>
                     </div>
                 </div>
             </header>
 
-            {/* Curriculum Accordion List */}
-            <main className="w-full mx-auto relative z-10">
-                <div className="mb-4">
-                    <h2 className="text-[11px] uppercase tracking-[3px] text-slate-400 dark:text-white/50 mb-4 pb-4 border-b border-gray-200 dark:border-white/[0.08] transition-colors duration-500">
-                        Course Contents
-                    </h2>
-                </div>
+            {/* Curriculum */}
+            <main>
+                <h2 className="text-xs uppercase tracking-widest text-slate-400 dark:text-white/40 mb-4 pb-4 border-b border-gray-200 dark:border-white/10" style={{ letterSpacing: '3px' }}>
+                    Course Contents
+                </h2>
 
-                <div className="flex flex-col">
-                    {textbookData.chapters.map((chapter, index) => {
-                        const isReady = chapter.status === 'READY';
-                        const isProcessing = chapter.status === 'PROCESSING';
-                        const isUnprocessed = chapter.status === 'UNPROCESSED';
-                        const isExpanded = expandedChapter === chapter.id;
+                {curriculum.length === 0 ? (
+                    <div className="flex flex-col items-center gap-4 py-16 text-center">
+                        <div className="w-10 h-10 border-4 border-[#a855f7] border-t-transparent rounded-full animate-spin" />
+                        <p className="text-slate-500 dark:text-white/50">Curriculum is being generated...</p>
+                    </div>
+                ) : (
+                    <div className="flex flex-col">
+                        {curriculum.map((lesson, index) => {
+                            const isExpanded = expandedChapter === index;
 
-                        const cardBaseClass = "relative overflow-hidden transition-all duration-200 ease-in-out border rounded-xl hover:-translate-y-[2px] mb-[12px] shadow-sm dark:shadow-none";
-                        const cardBg = isUnprocessed ? "bg-gray-50 dark:bg-white/[0.02] border border-gray-200 dark:border-white/[0.1] opacity-60 hover:border-gray-300 dark:hover:border-white/[0.16]" : "bg-white dark:bg-white/[0.04] border-gray-200 dark:border-white/[0.08] hover:border-gray-300 dark:hover:border-white/[0.16]";
-
-                        return (
-                            <div key={chapter.id} className="flex flex-col group">
-                                {/* Chapter Main Card */}
-                                <div
-                                    className={`${cardBaseClass} ${cardBg} px-6 py-5 flex items-center justify-between cursor-pointer`}
-                                    onClick={() => {
-                                        if (isReady) toggleChapter(chapter.id);
-                                    }}
-                                >
-                                    {/* Left Side */}
-                                    <div className="flex items-center">
-                                        <span className="text-[10px] font-bold tracking-wider px-3 py-1 bg-slate-100 dark:bg-black/40 text-slate-500 dark:text-white/50 rounded-full transition-colors duration-500">
-                                            CH 0{index + 1}
-                                        </span>
-                                        <h3 className={`text-[17px] font-semibold text-slate-900 dark:text-white ml-3 transition-colors duration-500 ${isUnprocessed ? 'text-slate-400 dark:text-white/40' : ''}`}>
-                                            {chapter.title}
-                                        </h3>
-                                    </div>
-
-                                    {/* Right Side */}
-                                    <div className="flex items-center gap-4">
-                                        {isReady && (
-                                            <div className="flex items-center gap-1.5 px-3 py-1 rounded border border-teal-500/30 dark:border-[#00f5d4]/30 bg-teal-50 dark:bg-[#00f5d4]/10">
-                                                <div className="w-1.5 h-1.5 rounded-full bg-teal-600 dark:bg-[#00f5d4]"></div>
-                                                <span className="text-teal-700 dark:text-[#00f5d4] text-[11px] font-bold uppercase tracking-[1.5px] transition-colors duration-500">READY</span>
-                                            </div>
-                                        )}
-                                        {isProcessing && (
-                                            <div className="flex flex-col items-end">
-                                                <div className="px-3 py-1 rounded border border-purple-300 dark:border-[#7c3aed]/40 bg-purple-50 dark:bg-[#7c3aed]/15 mb-1 text-center">
-                                                    <span className="text-purple-700 dark:text-[#a78bfa] text-[11px] font-bold uppercase tracking-[1.5px] animate-pulse transition-colors duration-500">PROCESSING</span>
-                                                </div>
-                                                <span className="text-purple-600 dark:text-[#a78bfa] text-[10px] font-mono whitespace-nowrap opacity-80 transition-colors duration-500">AI is cooking... 65%</span>
-                                            </div>
-                                        )}
-                                        {isUnprocessed && (
-                                            <>
-                                                <div className="px-3 py-1 rounded border border-gray-200 dark:border-white/10 bg-slate-50 dark:bg-white/[0.04] flex items-center gap-2 transition-colors duration-500">
-                                                    <Lock size={12} className="text-slate-400 dark:text-white/40" />
-                                                    <span className="text-slate-500 dark:text-white/40 text-[11px] font-bold uppercase tracking-[1.5px]">UNPROCESSED</span>
-                                                </div>
-                                                <button
-                                                    className="flex items-center gap-1.5 px-4 py-2 rounded-md bg-gradient-to-br from-[#00f5d4] to-[#7c3aed] shadow-[0_0_20px_rgba(0,245,212,0.3)] hover:scale-105 hover:shadow-[0_0_25px_rgba(0,245,212,0.5)] transition-all ml-2 border border-transparent"
-                                                    onClick={(e) => e.stopPropagation()}
-                                                >
-                                                    <Zap size={12} className="text-white fill-white" />
-                                                    <span className="text-white text-[11px] font-[700] uppercase tracking-[2px]">GENERATE</span>
-                                                </button>
-                                            </>
-                                        )}
-                                        {isReady && (
-                                            <div className="text-slate-400 dark:text-white/30 ml-2 hover:text-slate-900 dark:hover:text-white transition-colors">
-                                                {isExpanded ? <ChevronUp size={20} /> : <ChevronDown size={20} />}
-                                            </div>
-                                        )}
-                                    </div>
-
-                                    {/* Processing Progress Bar at Bottom of Card */}
-                                    {isProcessing && (
-                                        <div className="absolute bottom-0 left-0 w-full h-[3px] overflow-hidden rounded-b-xl">
-                                            <div className="absolute inset-0 bg-white/10" />
-                                            <div className="absolute h-full bg-gradient-to-r from-transparent via-[#7c3aed] to-[#00f5d4] w-[65%] shimmer-sweep shadow-[0_0_8px_#7c3aed]"></div>
+                            return (
+                                <div key={index} className="flex flex-col mb-3">
+                                    {/* Lesson Card */}
+                                    <div
+                                        className="flex items-center justify-between px-5 py-4 rounded-xl border transition-all duration-200 cursor-pointer"
+                                        style={{
+                                            background: dark ? '#0f1623' : 'white',
+                                            border: dark ? '1px solid rgba(255,255,255,0.08)' : '1px solid #e2e8f0',
+                                            boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
+                                        }}
+                                        onClick={() => setExpandedChapter(isExpanded ? null : index)}
+                                    >
+                                        <div className="flex items-center gap-3">
+                                            <span style={{
+                                                fontSize: '10px', fontWeight: 700, letterSpacing: '0.05em',
+                                                padding: '3px 10px', borderRadius: '9999px',
+                                                background: dark ? 'rgba(34,211,238,0.1)' : '#f1f5f9',
+                                                color: dark ? '#22d3ee' : '#64748b',
+                                            }}>
+                                                {String(index + 1).padStart(2, '0')}
+                                            </span>
+                                            <h3 className="text-slate-900 dark:text-white font-semibold" style={{ fontSize: '15px' }}>
+                                                {lesson.title}
+                                            </h3>
                                         </div>
-                                    )}
-                                </div>
 
-                                {/* Expanded Content */}
-                                {isReady && (
-                                    <div className={`transition-all duration-300 ease-in-out ${isExpanded ? 'max-h-[800px] opacity-100 mb-4' : 'max-h-0 opacity-0 overflow-hidden mb-0'}`}>
-                                        <div className="flex flex-col pl-4 border-l border-gray-200 dark:border-white/5 ml-4 mt-2 transition-colors duration-500">
-                                            {chapter.videos.map((video) => (
+                                        <div className="flex items-center gap-3">
+                                            {lesson.duration && (
+                                                <span style={{ fontSize: '12px', color: dark ? 'rgba(255,255,255,0.4)' : '#94a3b8', fontFamily: 'monospace' }}>
+                                                    {lesson.duration}
+                                                </span>
+                                            )}
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '4px 10px', borderRadius: '6px', border: '1px solid rgba(34,211,238,0.3)', background: 'rgba(34,211,238,0.08)' }}>
+                                                <div style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#22d3ee' }} />
+                                                <span style={{ fontSize: '11px', fontWeight: 700, letterSpacing: '1.5px', color: '#22d3ee' }}>READY</span>
+                                            </div>
+                                            <span style={{ color: dark ? 'rgba(255,255,255,0.4)' : '#94a3b8' }}>
+                                                {isExpanded ? <ChevronUp size={20} /> : <ChevronDown size={20} />}
+                                            </span>
+                                        </div>
+                                    </div>
+
+                                    {/* Expanded Concepts */}
+                                    {isExpanded && lesson.concepts?.length > 0 && (
+                                        <div style={{ marginTop: '4px', marginLeft: '1rem', paddingLeft: '1rem', borderLeft: `2px solid ${dark ? 'rgba(255,255,255,0.08)' : '#e2e8f0'}` }}>
+                                            {lesson.concepts.map((concept, cIdx) => (
                                                 <div
-                                                    key={video.id}
-                                                    onClick={() => navigate('/dashboard', {
-                                                        state: {
-                                                            activeVideoId: video.id,
-                                                            chapterTitle: chapter.title,
-                                                            playlist: chapter.videos
-                                                        }
-                                                    })}
-                                                    className="lecture-row flex items-center justify-between px-4 py-3 border-t border-gray-100 dark:border-white/[0.06] hover:bg-gray-50 dark:hover:bg-white/[0.04] transition-all duration-200 cursor-pointer group"
+                                                    key={cIdx}
+                                                    onClick={() => navigate('/dashboard')}
+                                                    className="flex items-center justify-between px-4 py-3 hover:bg-slate-50 dark:hover:bg-white/5 border-b border-gray-100 dark:border-white/5 cursor-pointer transition-all"
+                                                    style={{ borderRadius: '8px' }}
                                                 >
-                                                    <div className="flex items-center gap-4">
-                                                        <div className="w-8 h-8 rounded-full border border-teal-200 dark:border-[#00f5d4] flex items-center justify-center shrink-0 group-hover:bg-teal-50 dark:group-hover:bg-[#00f5d4]/10 transition-colors shadow-sm dark:shadow-[0_0_10px_rgba(0,245,212,0.1)]">
-                                                            <Play size={14} className="text-teal-600 dark:text-[#00f5d4] fill-teal-600 dark:fill-[#00f5d4] ml-0.5" />
+                                                    <div className="flex items-center gap-3">
+                                                        <div style={{ width: '32px', height: '32px', borderRadius: '50%', border: '1px solid #22d3ee', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                                                            <Play size={13} style={{ color: '#22d3ee', fill: '#22d3ee', marginLeft: '2px' }} />
                                                         </div>
-                                                        <span className="text-slate-700 dark:text-white font-medium group-hover:text-teal-700 dark:group-hover:text-[#00f5d4] transition-colors">{video.title}</span>
+                                                        <span className="text-slate-700 dark:text-white font-medium text-sm">{concept}</span>
                                                     </div>
-                                                    <span className="text-slate-500 dark:text-white/50 font-mono text-[13px] tracking-wide transition-colors duration-500">{video.duration}</span>
                                                 </div>
                                             ))}
 
-                                            {/* Boss Quiz */}
+                                            {/* Watch full lesson */}
                                             <div
-                                                onClick={() => navigate('/quiz')}
-                                                className="quiz-row flex items-center justify-between px-4 py-3 border border-[#f700ff]/20 bg-[#f700ff]/[0.06] rounded-lg mt-2 cursor-pointer hover:shadow-[0_0_15px_rgba(247,0,255,0.2)] transition-all duration-200 group"
+                                                onClick={() => navigate('/dashboard')}
+                                                style={{
+                                                    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                                                    padding: '12px 16px', marginTop: '8px', borderRadius: '10px',
+                                                    border: '1px solid rgba(168,85,247,0.2)', background: 'rgba(168,85,247,0.06)',
+                                                    cursor: 'pointer', transition: 'all 0.2s',
+                                                }}
+                                                onMouseEnter={e => e.currentTarget.style.boxShadow = '0 0 15px rgba(168,85,247,0.2)'}
+                                                onMouseLeave={e => e.currentTarget.style.boxShadow = 'none'}
                                             >
-                                                <div className="flex items-center gap-3">
-                                                    <Zap size={18} className="text-[#f700ff] fill-[#f700ff]" />
-                                                    <span className="text-[#f700ff] font-bold group-hover:drop-shadow-[0_0_8px_rgba(247,0,255,0.6)]">Boss-Level Quiz</span>
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                                    <Zap size={18} style={{ color: '#a855f7', fill: '#a855f7' }} />
+                                                    <span style={{ color: '#a855f7', fontWeight: 700 }}>Watch Full Lecture</span>
                                                 </div>
-                                                <div className="px-3 py-1 rounded-full border border-[#f700ff]/30 bg-[#f700ff]/10">
-                                                    <span className="text-[#f700ff] text-[11px] font-bold">3 Questions</span>
-                                                </div>
+                                                <span style={{ padding: '4px 10px', borderRadius: '9999px', border: '1px solid rgba(168,85,247,0.3)', background: 'rgba(168,85,247,0.1)', color: '#a855f7', fontSize: '11px', fontWeight: 700 }}>
+                                                    {lesson.duration || 'Video'}
+                                                </span>
                                             </div>
                                         </div>
-                                    </div>
-                                )}
-                            </div>
-                        );
-                    })}
-                </div>
+                                    )}
+                                </div>
+                            );
+                        })}
+                    </div>
+                )}
             </main>
-
-            <style>{`
-                @import url('https://fonts.googleapis.com/css2?family=Syne:wght@400..800&display=swap');
-
-                .font-display {
-                    font-family: 'Syne', sans-serif;
-                }
-
-                .magnetic-btn-neon {
-                    background: rgba(0, 245, 212, 0.05);
-                color: #00f5d4;
-                font-size: 11px;
-                font-weight: 700;
-                padding: 8px 16px;
-                border: 1px solid rgba(0, 245, 212, 0.4);
-                border-radius: 9999px;
-                cursor: pointer;
-                box-shadow: 0 0 15px rgba(0, 245, 212, 0.2);
-                transition: all 0.3s ease;
-                letter-spacing: 0.1em;
-                }
-                .magnetic-btn-neon:hover {
-                    background: rgba(0, 245, 212, 0.15);
-                box-shadow: 0 0 25px rgba(0, 245, 212, 0.5);
-                transform: translateY(-2px);
-                }
-
-                .lecture-row:hover {
-                    transform: translateX(4px);
-                }
-
-                @keyframes shimmerSweep {
-                    0% { transform: translateX(-100%); opacity: 0; }
-                    50% { opacity: 1; }
-                    100% { transform: translateX(200%); opacity: 0; }
-                }
-                .shimmer-sweep {
-                    position: relative;
-                    overflow: hidden;
-                }
-                .shimmer-sweep::after {
-                    content: '';
-                position: absolute;
-                top: 0;
-                right: 0;
-                bottom: 0;
-                left: 0;
-                background: linear-gradient(90deg, transparent, rgba(255,255,255,0.8), transparent);
-                animation: shimmerSweep 2.5s infinite;
-                }
-            `}</style>
         </div>
     );
 }

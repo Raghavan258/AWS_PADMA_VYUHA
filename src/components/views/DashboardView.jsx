@@ -15,9 +15,23 @@ export default function DashboardView() {
     const dark = isDarkMode;
     const anonymousUserId = useAnonymousUser();
 
+    // ── Theme tokens ──────────────────────────────────────────
+    const panel = dark ? '#0f1623' : '#ffffff';
+    const panelBorder = dark ? 'rgba(255,255,255,0.08)' : '#e2e8f0';
+    const panelSub = dark ? '#0d1420' : '#fafafa';
+    const textPri = dark ? '#f1f5f9' : '#0f172a';
+    const textSec = dark ? 'rgba(255,255,255,0.45)' : '#94a3b8';
+    const textMid = dark ? 'rgba(255,255,255,0.7)' : '#374151';
+    const rowHover = dark ? 'rgba(255,255,255,0.04)' : '#f8fafc';
+    const inputBg = dark ? 'rgba(255,255,255,0.06)' : 'white';
+    const inputBorder = dark ? 'rgba(255,255,255,0.1)' : '#e2e8f0';
+    const inputColor = dark ? '#f1f5f9' : '#1e293b';
+    const msgUserBg = dark ? 'rgba(255,255,255,0.08)' : '#f1f5f9';
+    const msgAiBg = dark ? 'rgba(168,85,247,0.12)' : 'rgba(168,85,247,0.08)';
+
     // ── State ─────────────────────────────────────────────────
-    const [courses, setCourses] = useState([]);         // Full list from API
-    const [selectedCourse, setSelectedCourse] = useState(null); // Currently viewed course
+    const [courses, setCourses] = useState([]);
+    const [selectedCourse, setSelectedCourse] = useState(null);
     const [isLoading, setIsLoading] = useState(true);
     const [realUserId, setRealUserId] = useState(null);
     const [isLowBandwidth, setIsLowBandwidth] = useState(false);
@@ -63,7 +77,6 @@ export default function DashboardView() {
                 setCourses(list);
                 setIsLoading(false);
 
-                // Auto-select most recent course
                 if (list.length > 0 && !selectedCourse) {
                     const sorted = [...list].sort((a, b) =>
                         new Date(b.createdAt) - new Date(a.createdAt)
@@ -71,7 +84,6 @@ export default function DashboardView() {
                     setSelectedCourse(sorted[0]);
                 }
 
-                // Stop polling if all courses are in a terminal state
                 const allDone = list.every(c =>
                     c.videoStatus?.includes('Video Ready') ||
                     c.videoStatus === 'Completed' ||
@@ -88,14 +100,13 @@ export default function DashboardView() {
         };
 
         fetchCourses();
-        // Poll every 15s (not 10s) — stops automatically when done
         pollRef.current = setInterval(fetchCourses, 15000);
         return () => {
             if (pollRef.current) clearInterval(pollRef.current);
         };
     }, [realUserId]);
 
-    // Update selectedCourse when courses refresh (get latest videoUrl/status)
+    // Update selectedCourse when courses refresh
     useEffect(() => {
         if (selectedCourse && courses.length > 0) {
             const updated = courses.find(c => c.courseId === selectedCourse.courseId);
@@ -166,7 +177,7 @@ export default function DashboardView() {
     };
 
     const handleQuizOptionSelect = (option) => {
-        if (selectedOption !== null) return; // prevent multiple clicks
+        if (selectedOption !== null) return;
         setSelectedOption(option);
 
         setTimeout(() => {
@@ -179,19 +190,23 @@ export default function DashboardView() {
             } else {
                 setShowQuizResults(true);
             }
-        }, 1500); // Wait to show right/wrong feedback
+        }, 1500);
     };
+
+    // ── Derived values from selected course ───────────────────
+    const videoStatus = selectedCourse?.videoStatus || '';
+    const videoUrl = selectedCourse?.videoUrl || null;
+    const isVideoReady = videoStatus.includes('Video Ready') || videoStatus === 'Completed';
+    const isError = videoStatus.startsWith('Error');
 
     // Parse curriculum from DynamoDB format
     const curriculum = selectedCourse?.curriculum?.map(item => {
-        // Handle DynamoDB JSON format: { M: { lessonTitle: { S: "..." }, concepts: { L: [...] } } }
         if (item?.M) {
             const title = item.M.lessonTitle?.S || item.M.lesson?.S || 'Lesson';
             const duration = item.M.duration?.S || '';
             const concepts = item.M.concepts?.L?.map(c => c.S).filter(Boolean) || [];
             return { title, duration, concepts };
         }
-        // Already parsed
         if (item?.lessonTitle || item?.lesson) {
             return {
                 title: item.lessonTitle || item.lesson,
@@ -202,7 +217,6 @@ export default function DashboardView() {
         return item;
     }) || [];
 
-    // Sort courses newest first for sidebar
     const sortedCourses = [...courses].sort((a, b) =>
         new Date(b.createdAt) - new Date(a.createdAt)
     );
@@ -291,20 +305,16 @@ export default function DashboardView() {
 
                     {/* Video Card */}
                     <div style={{ background: panel, border: `1px solid ${panelBorder}`, borderRadius: '16px', overflow: 'hidden', boxShadow: dark ? '0 4px 20px rgba(0,0,0,0.3)' : '0 2px 8px rgba(0,0,0,0.04)' }}>
-
-                        {/* Video Player Area */}
                         <div style={{ aspectRatio: '16/9', background: '#0a0a0a', position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
-
                             {isError ? (
                                 <div style={{ color: '#ef4444', textAlign: 'center', padding: '20px' }}>
                                     <p style={{ fontWeight: 700, marginBottom: '8px', fontSize: 16 }}>⚠ Video Generation Failed</p>
                                     <p style={{ fontSize: '12px', color: 'rgba(239,68,68,0.7)' }}>{videoStatus}</p>
                                 </div>
-
                             ) : isVideoReady && videoUrl ? (
                                 <video
                                     ref={videoRef}
-                                    key={videoUrl}  // Force remount when URL changes
+                                    key={videoUrl}
                                     src={videoUrl}
                                     controls
                                     style={{ width: '100%', height: '100%', objectFit: 'contain' }}
@@ -312,16 +322,12 @@ export default function DashboardView() {
                                 >
                                     Your browser does not support the HTML5 video tag.
                                 </video>
-
                             ) : isVideoReady && !videoUrl ? (
-                                // Ready but no URL yet — show message
                                 <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '12px', padding: 20 }}>
                                     <div className="w-10 h-10 border-4 border-[#22d3ee] border-t-transparent rounded-full animate-spin" />
                                     <p style={{ color: '#22d3ee', fontWeight: 600 }}>Video ready, loading URL...</p>
                                 </div>
-
                             ) : (
-                                // Still processing
                                 <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '16px', padding: 20, textAlign: 'center' }}>
                                     <div className="w-12 h-12 border-4 border-[#a855f7] border-t-transparent rounded-full animate-spin" />
                                     <div style={{ color: 'white', fontWeight: 600 }}>
@@ -349,7 +355,7 @@ export default function DashboardView() {
                         </div>
                     </div>
 
-                    {/* My Courses list (below video on mobile, useful for switching) */}
+                    {/* My Courses list */}
                     {sortedCourses.length > 1 && (
                         <div style={{ background: panel, border: `1px solid ${panelBorder}`, borderRadius: '14px', padding: '1.25rem', boxShadow: dark ? '0 4px 20px rgba(0,0,0,0.25)' : '0 1px 4px rgba(0,0,0,0.04)' }}>
                             <h3 style={{ fontSize: '14px', fontWeight: 700, color: textPri, marginBottom: '12px' }}>My Courses</h3>
@@ -428,7 +434,6 @@ export default function DashboardView() {
 
                     {/* Tab Content */}
                     <div style={{ flex: 1, overflowY: 'auto', background: panel }}>
-
                         {activeTab === 'curriculum' && (
                             <div>
                                 <div style={{ padding: '16px 20px', borderBottom: `1px solid ${panelBorder}`, background: panelSub }}>
@@ -437,16 +442,12 @@ export default function DashboardView() {
                                         {curriculum.length} lessons
                                     </p>
                                 </div>
-
                                 {curriculum.length === 0 ? (
                                     <div style={{ padding: '20px', color: textSec, fontSize: 13, textAlign: 'center' }}>
                                         Curriculum is being generated...
                                     </div>
                                 ) : curriculum.map((lesson, idx) => (
-                                    <div key={idx} style={{
-                                        padding: '14px 16px', borderBottom: `1px solid ${panelBorder}`,
-                                        transition: 'background 0.15s',
-                                    }}
+                                    <div key={idx} style={{ padding: '14px 16px', borderBottom: `1px solid ${panelBorder}`, transition: 'background 0.15s' }}
                                         onMouseEnter={e => e.currentTarget.style.background = rowHover}
                                         onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
                                     >
@@ -455,13 +456,9 @@ export default function DashboardView() {
                                                 {idx + 1}
                                             </div>
                                             <div style={{ flex: 1 }}>
-                                                <div style={{ fontSize: '13px', fontWeight: 600, color: textMid, marginBottom: '4px' }}>
-                                                    {lesson.title}
-                                                </div>
+                                                <div style={{ fontSize: '13px', fontWeight: 600, color: textMid, marginBottom: '4px' }}>{lesson.title}</div>
                                                 {lesson.duration && (
-                                                    <div style={{ fontSize: '11px', color: textSec, fontFamily: 'monospace', marginBottom: '4px' }}>
-                                                        {lesson.duration}
-                                                    </div>
+                                                    <div style={{ fontSize: '11px', color: textSec, fontFamily: 'monospace', marginBottom: '4px' }}>{lesson.duration}</div>
                                                 )}
                                                 {lesson.concepts?.length > 0 && (
                                                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', marginTop: '6px' }}>
@@ -584,17 +581,9 @@ export default function DashboardView() {
 
                                             let bg = dark ? 'rgba(255,255,255,0.04)' : '#f8fafc';
                                             let brColor = panelBorder;
-
-                                            if (showCorrect) {
-                                                bg = 'rgba(34,197,94,0.1)';
-                                                brColor = '#22c55e';
-                                            } else if (showWrong) {
-                                                bg = 'rgba(239,68,68,0.1)';
-                                                brColor = '#ef4444';
-                                            } else if (isSelected) {
-                                                bg = 'rgba(168,85,247,0.1)';
-                                                brColor = '#a855f7';
-                                            }
+                                            if (showCorrect) { bg = 'rgba(34,197,94,0.1)'; brColor = '#22c55e'; }
+                                            else if (showWrong) { bg = 'rgba(239,68,68,0.1)'; brColor = '#ef4444'; }
+                                            else if (isSelected) { bg = 'rgba(168,85,247,0.1)'; brColor = '#a855f7'; }
 
                                             return (
                                                 <button
@@ -611,7 +600,7 @@ export default function DashboardView() {
                                                 >
                                                     {opt}
                                                 </button>
-                                            )
+                                            );
                                         })}
                                     </div>
                                 </div>
