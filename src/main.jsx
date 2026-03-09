@@ -15,6 +15,14 @@ import { ThemeProvider } from './contexts/ThemeContext'
 import { Amplify } from 'aws-amplify';
 import '@aws-amplify/ui-react/styles.css';
 
+// 1. Define your exact URLs (Keep the trailing slash!)
+const LOCAL_URL = 'http://localhost:5173/';
+const AMPLIFY_URL = 'https://main.d2nk83axc3a87z.amplifyapp.com'; // <--- PASTE YOUR REAL LINK HERE
+
+// 2. Check where the app is currently running
+const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+const currentRedirectUrl = isLocalhost ? LOCAL_URL : AMPLIFY_URL;
+
 Amplify.configure({
   Auth: {
     Cognito: {
@@ -25,8 +33,9 @@ Amplify.configure({
         oauth: {
           domain: 'us-east-1ansp4ru35.auth.us-east-1.amazoncognito.com',
           scopes: ['email', 'openid', 'phone'],
-          redirectSignIn: ['http://localhost:5173/', 'https://yourproductiondomain.com/'],
-          redirectSignOut: ['http://localhost:5173/', 'https://yourproductiondomain.com/'],
+          // 3. Inject the single correct URL dynamically
+          redirectSignIn: [currentRedirectUrl],
+          redirectSignOut: [currentRedirectUrl],
           responseType: 'code',
         }
       }
