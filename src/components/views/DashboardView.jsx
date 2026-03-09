@@ -21,20 +21,30 @@ export default function DashboardView() {
     useEffect(() => {
         if (!anonymousUserId) return;
 
-        // FIXED: Removed '/prod' because your AWS API Gateway uses the $default stage
         const API_URL = 'https://0la9c5d8ve.execute-api.us-east-1.amazonaws.com/getCourses';
 
-        fetch(`${API_URL}?userId=${anonymousUserId}`)
-            .then(res => res.json())
-            .then(data => {
-                // Assuming data returns { courses: [...] } or just an array
-                setCourseData(data.courses || data || []);
-                setIsLoading(false);
-            })
-            .catch(err => {
-                console.error('Failed to fetch filtered course data:', err);
-                setIsLoading(false);
-            });
+        // Create a dedicated fetch function
+        const fetchCourses = () => {
+            fetch(`${API_URL}?userId=${anonymousUserId}`)
+                .then(res => res.json())
+                .then(data => {
+                    setCourseData(data.courses || data || []);
+                    setIsLoading(false);
+                })
+                .catch(err => {
+                    console.error('Failed to fetch filtered course data:', err);
+                    setIsLoading(false);
+                });
+        };
+
+        // 1. Fetch immediately on load
+        fetchCourses();
+
+        // 2. Poll every 10 seconds to check for video completion
+        const intervalId = setInterval(fetchCourses, 10000);
+
+        // 3. Cleanup interval on unmount
+        return () => clearInterval(intervalId);
     }, [anonymousUserId]);
 
     const videoData = location.state || {};
@@ -200,54 +210,38 @@ export default function DashboardView() {
                                 </div>
                             </div>
                         ) : (
-                            <div style={{ aspectRatio: '16/9', background: '#0a0a0a', position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center' }} className="group">
-                                <button onClick={togglePlay} style={{ background: 'none', border: 'none', cursor: 'pointer', zIndex: 10 }}>
-                                    <Play size={64} style={{ color: 'rgba(255,255,255,0.85)', filter: 'drop-shadow(0 0 15px rgba(34,211,238,0.5))' }} />
-                                </button>
-                                {isCCEnabled && (
-                                    <div style={{ position: 'absolute', bottom: '80px', left: 0, right: 0, display: 'flex', justifyContent: 'center', pointerEvents: 'none', zIndex: 20, padding: '0 1rem' }}>
-                                        <div style={{ background: 'rgba(0,0,0,0.75)', backdropFilter: 'blur(4px)', padding: '8px 16px', borderRadius: '8px', color: 'white', fontWeight: 500, border: '1px solid rgba(255,255,255,0.1)', maxWidth: '600px', textAlign: 'center' }}>
-                                            The key factor in energy transfer across these synthetic membranes is...
+                            <div style={{ aspectRatio: '16/9', background: '#0a0a0a', position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }} className="group">
+
+                                {/* 1. CHECK STATUS: Did it fail? */}
+                                {courseData?.[0]?.videoStatus?.startsWith('Error') ? (
+                                    <div style={{ color: '#ef4444', textAlign: 'center', padding: '20px' }}>
+                                        <p style={{ fontWeight: 700, marginBottom: '8px' }}>Video Generation Failed</p>
+                                        <p style={{ fontSize: '12px' }}>{courseData?.[0]?.videoStatus}</p>
+                                    </div>
+
+                                    /* 2. CHECK STATUS: Is it fully complete? (Video Ready or Completed) */
+                                ) : (courseData?.[0]?.videoStatus?.includes('Ready') || courseData?.[0]?.videoStatus === 'Completed') ? (
+                                    <video
+                                        // Uses the URL we predicted and saved to DynamoDB!
+                                        src={courseData?.[0]?.videoUrl || "https://www.w3schools.com/html/mov_bbb.mp4"}
+                                        controls
+                                        autoPlay
+                                        style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                                    >
+                                        Your browser does not support the HTML5 video tag.
+                                    </video>
+
+                                    /* 3. DEFAULT: If it's not Error and not Ready, it must still be processing! */
+                                ) : (
+                                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '16px' }}>
+                                        <div className="w-12 h-12 border-4 border-[#a855f7] border-t-transparent rounded-full animate-spin"></div>
+                                        <div style={{ color: 'white', fontWeight: 600, animation: 'pulse 2s infinite' }}>
+                                            {courseData?.[0]?.videoStatus || 'AI is generating your lecture...'}
                                         </div>
                                     </div>
                                 )}
-                                {isSynthesizingAudio && (
-                                    <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.85)', backdropFilter: 'blur(4px)', zIndex: 30, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
-                                        <div style={{ width: '60px', height: '60px', borderRadius: '50%', background: 'rgba(34,211,238,0.15)', border: '1px solid rgba(34,211,238,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '1rem' }}>
-                                            <BrainCircuit size={28} style={{ color: '#22d3ee' }} />
-                                        </div>
-                                        <div style={{ color: 'white', fontWeight: 700, fontSize: '13px', padding: '4px 12px', borderRadius: '6px', background: 'rgba(34,211,238,0.1)', border: '1px solid rgba(34,211,238,0.3)' }}>
-                                            Synthesizing Audio
-                                        </div>
-                                    </div>
-                                )}
-                                <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, padding: '1rem', background: 'linear-gradient(to top, rgba(0,0,0,0.9), transparent)', zIndex: 40 }}
-                                    className="opacity-0 group-hover:opacity-100 transition-opacity duration-300"
-                                >
-                                    <div style={{ width: '100%', height: '4px', background: 'rgba(255,255,255,0.2)', borderRadius: '9999px', marginBottom: '12px', position: 'relative' }}>
-                                        <div style={{ position: 'absolute', left: 0, top: 0, height: '100%', width: '35%', background: '#22d3ee', borderRadius: '9999px' }} />
-                                    </div>
-                                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px' }}>
-                                        <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
-                                            <button onClick={togglePlay} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'white' }}>
-                                                {isPlaying ? <Pause size={20} /> : <Play size={20} />}
-                                            </button>
-                                            <button style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'rgba(255,255,255,0.7)' }}><Volume2 size={18} /></button>
-                                            <span style={{ color: 'rgba(255,255,255,0.85)', fontSize: '12px', fontFamily: 'monospace' }}>{formatCurrentTime(currentTimeRaw)} / {displayDuration}</span>
-                                        </div>
-                                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                                            <button onClick={() => setIsCCEnabled(!isCCEnabled)} style={{ background: isCCEnabled ? 'rgba(34,211,238,0.2)' : 'transparent', border: isCCEnabled ? '1px solid rgba(34,211,238,0.5)' : '1px solid transparent', borderRadius: '6px', padding: '4px 6px', cursor: 'pointer', color: isCCEnabled ? '#22d3ee' : 'rgba(255,255,255,0.7)' }}>
-                                                <Subtitles size={18} />
-                                            </button>
-                                            <select value={activeLanguage} onChange={handleLanguageChange} style={{ background: 'rgba(0,0,0,0.5)', color: 'white', border: '1px solid rgba(255,255,255,0.2)', borderRadius: '6px', padding: '4px 8px', fontSize: '12px', cursor: 'pointer' }}>
-                                                <option value="EN">English</option>
-                                                <option value="HI">हिंदी (Hindi)</option>
-                                                <option value="TE">తెలుగు (Telugu)</option>
-                                            </select>
-                                            <button style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'rgba(255,255,255,0.7)' }}><Maximize size={18} /></button>
-                                        </div>
-                                    </div>
-                                </div>
+
+                                {/* Keep your CC and Action Bar overlays here if you want them floating over the video */}
                             </div>
                         )}
 
