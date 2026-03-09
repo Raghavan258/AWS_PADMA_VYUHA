@@ -21,11 +21,15 @@ export default function DashboardView() {
     useEffect(() => {
         if (!anonymousUserId) return;
 
-        fetch(`YOUR_API_GATEWAY_COURSES_ENDPOINT?userId=${anonymousUserId}`)
+        // UPDATED: Pointing directly to your API Gateway URL
+        // Change '/prod/getCourses' if your stage or resource name is different in AWS
+        const API_URL = 'https://0la9c5d8ve.execute-api.us-east-1.amazonaws.com/prod/getCourses';
+
+        fetch(`${API_URL}?userId=${anonymousUserId}`)
             .then(res => res.json())
             .then(data => {
-                // Assuming data returns { courses: [...] } 
-                setCourseData(data.courses || []);
+                // Assuming data returns { courses: [...] } or just an array
+                setCourseData(data.courses || data || []);
                 setIsLoading(false);
             })
             .catch(err => {
