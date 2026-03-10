@@ -142,6 +142,8 @@ export default function UploadView() {
                 const courseId = `course_${Date.now()}`;
                 setCurrentCourseId(courseId);
 
+                const fullS3Key = `private/${identityId}/${uniqueFileName}`;
+
                 // Write to LecturAi-Courses table
                 const putCommand = new PutCommand({
                     TableName: 'LecturAi-Courses',
@@ -149,7 +151,7 @@ export default function UploadView() {
                         courseId: courseId,
                         userId: resolvedUserId || anonymousUserId || identityId || 'unknown-user',
                         fileName: file.name,
-                        s3Key: uniqueFileName,
+                        s3Key: fullS3Key,
                         videoStatus: 'Pending',
                         createdAt: new Date().toISOString()
                     }
@@ -226,18 +228,7 @@ export default function UploadView() {
                                     Key: { courseId: currentCourseId },
                                     UpdateExpression: "SET curriculum = :c, videoStatus = :s",
                                     ExpressionAttributeValues: {
-                                        ":c": [
-                                            {
-                                                lessonTitle: "Foundation & Overview",
-                                                duration: "05:00",
-                                                concepts: ["Introduction", "Core Frameworks"]
-                                            },
-                                            {
-                                                lessonTitle: "Deep Dive into Mechanics",
-                                                duration: "10:30",
-                                                concepts: ["Advanced Theory", "Practical Examples"]
-                                            }
-                                        ],
+                                        ":c": [],
                                         ":s": "Completed"
                                     }
                                 });
